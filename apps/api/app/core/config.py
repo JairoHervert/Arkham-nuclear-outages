@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     raw_dir: Path = BASE_DIR / "data" / "raw"
     model_dir: Path = BASE_DIR / "data" / "model"
 
+    # State management
+    state_dir: Path = BASE_DIR / "data" / "state"
+    extract_state_file: str = "extract_state.json"
+
     # logging settings
     logs_dir: Path = BASE_DIR / "logs"
     log_retention_days: int = 14
@@ -94,10 +98,15 @@ class Settings(BaseSettings):
     def outages_parquet_path(self) -> Path:
         return self.model_dir / self.outages_parquet
 
+    @property
+    def extract_state_path(self) -> Path:
+        return self.state_dir / self.extract_state_file
+
     def create_directories(self) -> None:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache
