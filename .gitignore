@@ -1,7 +1,10 @@
 .env
 
+# Archivos parquet de datos extraídos
+data/
+
 # Ignora archivos de log (solo para el desarrollo)
-/logs/*.log
+/logs/
 .log
 
 # directorios de cache de python
