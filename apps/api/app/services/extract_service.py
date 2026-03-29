@@ -12,6 +12,25 @@ import polars as pl
 from app.connectors.eia_client import EIAAuthError, EIAClient, EIAClientError
 from app.core.config import Settings, get_settings
 
+"""
+Extraction service for the Nuclear Outages dataset.
+
+Responsibilities:
+- orchestrate full and incremental extraction runs
+- validate raw rows before persistence
+- persist raw parquet files
+- persist extraction state for resume and incremental refreshes
+
+This service sits above the HTTP client:
+- EIAClient handles API requests and retries
+- ExtractService decides how pages are processed and persisted
+
+Extraction modes:
+- full extract: build the historical raw dataset from offset 0
+- resumed full extract: continue an interrupted full extract from a saved offset
+- incremental extract: re-read recent data using period overlap and merge it into raw storage
+"""
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +53,7 @@ RAW_DEDUP_KEYS = (
     "generator",
 )
 
+# Default extraction state used when no valid state file is available.
 DEFAULT_STATE = {
     "full_extract_completed": False,
     "next_offset": None,
@@ -61,6 +81,7 @@ class ExtractService:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
 
+    # Validate a single raw row using the minimum set of required fields
     def _validate_row(self, row: dict[str, Any]) -> tuple[bool, list[str]]:
         missing_fields: list[str] = []
 
@@ -120,6 +141,7 @@ class ExtractService:
         return self.settings.raw_parquet_path
 
     # Merge newly extracted rows into the existing raw parquet.
+    # This is used for resumed full extracts and incremental refreshes.
     def _merge_and_write_raw(self, rows: list[dict[str, Any]]) -> Path:
         new_df = self._rows_to_df(rows)
 
@@ -171,6 +193,9 @@ class ExtractService:
             )
             return DEFAULT_STATE.copy()
 
+    # Persist the current extraction state so future runs can either:
+    # - resume an incomplete full extract by offset
+    # - continue incremental refreshes by period
     def _save_state(
         self,
         *,
@@ -191,6 +216,8 @@ class ExtractService:
         )
         return self.settings.extract_state_path
 
+    # Return the newest period found in a list of extracted rows
+    # This is useful when computing incremental progress
     def _get_latest_period_from_rows(self, rows: list[dict[str, Any]]) -> str | None:
         if not rows:
             return None
@@ -198,6 +225,8 @@ class ExtractService:
         periods = [row["period"] for row in rows if row.get("period")]
         return max(periods) if periods else None
 
+    # Return the newest period currently stored in raw parquet
+    # This is the authoritative fallback when rebuilding incremental state from persisted raw data
     def _get_latest_period_from_raw(self) -> str | None:
         if not self.settings.raw_parquet_path.exists():
             return None
@@ -364,10 +393,13 @@ class ExtractService:
             logger.error("Full extraction finished without any valid rows.")
             raise EIAClientError("Full extraction finished without any valid rows to store.")
 
+        # New full
         if start_offset == 0:
             raw_parquet_path = self._write_full_raw(extracted_rows)
+        # Resumed full with new data
         elif extracted_rows:
             raw_parquet_path = self._merge_and_write_raw(extracted_rows)
+        # no new data extracted during resumed full
         else:
             raw_parquet_path = self.settings.raw_parquet_path
 
@@ -408,6 +440,7 @@ class ExtractService:
         return self._run_full_extract(start_offset=0)
 
     # Public method for an incremental refresh based on the last saved successful period.
+    # Incremental extraction re-reads the latest known period as overlap, then merges and deduplicates the result to avoid missing late updates.
     def run_incremental_extract(self) -> ExtractResult:
         logger.info("Starting incremental extraction from EIA.")
 
@@ -500,6 +533,7 @@ class ExtractService:
                         exc,
                     )
 
+                    # Abort on the first unrecoverable page failure
                     raw_parquet_path, state_path, last_successful_period = self._persist_incremental_progress(
                         extracted_rows=extracted_rows,
                         fallback_period=cutoff_period,

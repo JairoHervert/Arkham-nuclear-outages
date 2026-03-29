@@ -8,6 +8,21 @@ import httpx
 
 from app.core.config import Settings, get_settings
 
+"""
+HTTP client for the EIA Nuclear Outages dataset.
+Only for extracting a page of raw data or the total number of rows.
+
+Responsibilities:
+- build request parameters for the EIA endpoint
+- execute paginated requests (recive offsets and lengths from the extraction layer)
+- handle authentication, network, and response-format errors
+- return raw payloads or raw rows to the extraction layer
+
+This client does not:
+- store Parquet files
+- manage extraction state
+- perform data normalization or transformations
+"""
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +42,16 @@ class EIAResponseError(EIAClientError):
 class EIAClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
+
+        # Reuse a single HTTP client instance for connection
         self.client = httpx.Client(
             timeout=self.settings.request_timeout_seconds,
             headers={"Accept": "application/json"},
         )
 
+    # Build query parameters for one page request.
+    # Offset and length control pagination, while the selected data fields
+    # keep the response focused on the columns required by this project.
     def _build_params(self, offset: int = 0, length: int | None = None) -> dict[str, Any]:
         page_size = length or self.settings.page_size
 
@@ -47,6 +67,7 @@ class EIAClient:
             "length": page_size,
         }
 
+    # Try to extract the most useful error message from the HTTP response
     def _extract_error_message(self, response: httpx.Response) -> str:
         try:
             payload = response.json()
@@ -64,6 +85,7 @@ class EIAClient:
 
         return f"EIA API error ({response.status_code}) without additional details."
 
+    # Retrieve a single page from EIA (5000 rows by default, but configurable through length)
     def get_page(self, offset: int = 0, length: int | None = None) -> dict[str, Any]:
         params = self._build_params(offset=offset, length=length)
         page_size = length or self.settings.page_size
@@ -74,6 +96,7 @@ class EIAClient:
             try:
                 response = self.client.get(self.settings.eia_url, params=params)
 
+                # Authentication errors are not retryable because a new attempt will not fix an invalid API key or missing access
                 if response.status_code in (401, 403):
                     logger.error("Authentication failed while calling EIA.")
                     raise EIAAuthError(
@@ -81,6 +104,7 @@ class EIAClient:
                         "Check your API key and endpoint access."
                     )
 
+                # Retry server-side failures because they may be temporary
                 if 500 <= response.status_code < 600:
                     if attempt < self.settings.max_retries:
                         logger.warning(
@@ -95,6 +119,7 @@ class EIAClient:
                     logger.error("EIA returned a server error: %s", response.status_code)
                     raise EIAResponseError(self._extract_error_message(response))
 
+                # Other HTTP errors are treated as non-successful responses
                 if response.is_error:
                     logger.error("HTTP error while calling EIA: %s", response.status_code)
                     raise EIAResponseError(self._extract_error_message(response))
@@ -112,7 +137,8 @@ class EIAClient:
                 logger.info("EIA page retrieved successfully.")
                 return payload
 
-            except httpx.RequestError as exc:
+            except httpx.RequestError as exc:\
+                # Retry network-level failures because they may be transient
                 if attempt < self.settings.max_retries:
                     logger.warning(
                         "Network error while calling EIA. Retrying attempt %s/%s",
@@ -134,6 +160,7 @@ class EIAClient:
         logger.error("All attempts to call EIA were exhausted.")
         raise EIAClientError("An unexpected error occurred while calling EIA.")
 
+    # Return only the list of raw rows for a page, instead of the full payload
     def get_rows(self, offset: int = 0, length: int | None = None) -> list[dict[str, Any]]:
         payload = self.get_page(offset=offset, length=length)
         response_block = payload.get("response", {})
@@ -146,6 +173,7 @@ class EIAClient:
         logger.info("Retrieved %s rows.", len(data))
         return data
 
+    # Request the total number of rows available in the dataset
     def get_total_rows(self) -> int:
         payload = self.get_page(offset=0, length=1)
         response_block = payload.get("response", {})

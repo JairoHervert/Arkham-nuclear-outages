@@ -6,6 +6,15 @@ from app.connectors.eia_client import EIAAuthError, EIAClientError
 from app.core.logging import setup_logging
 from app.services.extract_service import ExtractService
 
+"""
+Manual smoke test for the extraction service.
+
+Purpose:
+- exercise the extraction flow from a single entry point
+- verify full, resumed, or incremental behavior
+- print a compact summary of the extraction result for quick inspection
+"""
+
 logger = logging.getLogger(__name__)
 
 

@@ -4,11 +4,25 @@ from pathlib import Path
 from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+"""
+Settings for the aplication (backend) service.
+
+This module centralizes:
+- environment-based configuration
+- local project paths
+- EIA connector settings
+- log and state management settings
+
+It does not contain extraction data
+"""
+
 
 BASE_DIR = Path(__file__).resolve().parents[4]
 
 
 class Settings(BaseSettings):
+    # Load settings from the project-level .env file and ignore unrelated
+    # environment variables that may exist in the local machine.
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
         env_file_encoding="utf-8",
@@ -21,10 +35,12 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # EIA
+    # The API key is stored as SecretStr to avoid exposing it accidentally in logs
     eia_api_key: SecretStr
     eia_base_url: str = "https://api.eia.gov/v2"
     eia_endpoint: str
 
+    # Request behavior
     request_timeout_seconds: float = 30.0
     page_size: int = 5000
     max_retries: int = 3
@@ -35,7 +51,7 @@ class Settings(BaseSettings):
     raw_dir: Path = BASE_DIR / "data" / "raw"
     model_dir: Path = BASE_DIR / "data" / "model"
 
-    # State management
+    # State management directory and files
     state_dir: Path = BASE_DIR / "data" / "state"
     extract_state_file: str = "extract_state.json"
 
@@ -52,14 +68,16 @@ class Settings(BaseSettings):
     @field_validator("eia_base_url")
     @classmethod
     def validate_eia_base_url(cls, value: str) -> str:
+        # Normalize the base URL so the final composed endpoint does not contain accidental double slashes.
         return value.rstrip("/")
 
     @field_validator("eia_endpoint")
     @classmethod
     def validate_eia_endpoint(cls, value: str) -> str:
+        # Ensure the endpoint is non-empty and always starts with "/"
         value = value.strip()
         if not value:
-            raise ValueError("eia_endpoint no puede estar vacío")
+            raise ValueError("eia_endpoint cannot be empty")
         if not value.startswith("/"):
             value = f"/{value}"
         return value
@@ -68,14 +86,14 @@ class Settings(BaseSettings):
     @classmethod
     def validate_page_size(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("page_size debe ser mayor que 0")
+            raise ValueError("page_size must be greater than 0")
         return value
 
     @field_validator("max_retries")
     @classmethod
     def validate_max_retries(cls, value: int) -> int:
         if value < 0:
-            raise ValueError("max_retries no puede ser negativo")
+            raise ValueError("max_retries cannot be negative")
         return value
 
     @property

@@ -7,37 +7,48 @@ from app.connectors.eia_client import EIAAuthError, EIAClient, EIAClientError
 from app.core.logging import setup_logging
 
 
+"""
+Manual smoke test for the EIA client.
+
+Purpose:
+- verify that the connector can request a page successfully
+- verify that authentication and connector errors are surfaced clearly
+- print one sample row for quick inspection during development
+"""
+
 logger = logging.getLogger(__name__)
 
 
 def main() -> int:
     setup_logging()
-    logger.info("Iniciando prueba manual del cliente EIA.")
+    logger.info("Starting manual EIA client test.")
 
     try:
+        # Request a small sample page to validate the connector behavior
+        # without running a full extraction.
         with EIAClient() as client:
             rows = client.get_rows(offset=0, length=200)
 
-            logger.info("Prueba completada con éxito. Filas recuperadas: %s", len(rows))
+            logger.info("Test completed successfully. Retrieved rows: %s", len(rows))
 
             if not rows:
-                logger.warning("La API respondió correctamente, pero no devolvió filas.")
+                logger.warning("The API responded successfully, but returned no rows.")
                 return 0
 
-            logger.info("Mostrando la primera fila recuperada.")
+            logger.info("Printing the first retrieved row.")
             pprint(rows[0])
             return 0
 
     except EIAAuthError as exc:
-        logger.error("Error de autenticación con EIA: %s", exc)
+        logger.error("Authentication error while testing the EIA client: %s", exc)
         return 2
 
     except EIAClientError as exc:
-        logger.error("Error del cliente EIA: %s", exc)
+        logger.error("EIA client error while running the test: %s", exc)
         return 1
 
     except Exception:
-        logger.exception("Ocurrió un error inesperado durante la prueba del cliente EIA.")
+        logger.exception("Unexpected error while running the EIA client test.")
         return 99
 
 
