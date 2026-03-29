@@ -1,4 +1,9 @@
 .env
 
+# Ignora archivos de log (solo para el desarrollo)
+/logs/*.log
+.log
+
 # directorios de cache de python
 __pycache__/
+venv/
