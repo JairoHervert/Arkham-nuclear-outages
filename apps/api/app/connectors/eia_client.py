@@ -13,15 +13,15 @@ logger = logging.getLogger(__name__)
 
 
 class EIAClientError(Exception):
-    """Error base del cliente EIA."""
+    """Base error for the EIA client."""
 
 
 class EIAAuthError(EIAClientError):
-    """Error de autenticación o autorización contra EIA."""
+    """Authentication or authorization error while calling EIA."""
 
 
 class EIAResponseError(EIAClientError):
-    """Error de respuesta inválida o inesperada de EIA."""
+    """Invalid or unexpected response returned by EIA."""
 
 
 class EIAClient:
@@ -62,29 +62,29 @@ class EIAClient:
         if text:
             return f"EIA API error ({response.status_code}): {text}"
 
-        return f"EIA API error ({response.status_code}) sin detalle adicional."
+        return f"EIA API error ({response.status_code}) without additional details."
 
     def get_page(self, offset: int = 0, length: int | None = None) -> dict[str, Any]:
         params = self._build_params(offset=offset, length=length)
         page_size = length or self.settings.page_size
 
-        logger.info("Consultando EIA: offset=%s, length=%s", offset, page_size)
+        logger.info("Requesting EIA page: offset=%s, length=%s", offset, page_size)
 
         for attempt in range(self.settings.max_retries + 1):
             try:
                 response = self.client.get(self.settings.eia_url, params=params)
 
                 if response.status_code in (401, 403):
-                    logger.error("Autenticación fallida contra EIA.")
+                    logger.error("Authentication failed while calling EIA.")
                     raise EIAAuthError(
-                        "No fue posible autenticarse con EIA. "
-                        "Revisa tu API key y el acceso al endpoint."
+                        "Could not authenticate with EIA. "
+                        "Check your API key and endpoint access."
                     )
 
                 if 500 <= response.status_code < 600:
                     if attempt < self.settings.max_retries:
                         logger.warning(
-                            "EIA devolvió %s. Reintentando intento %s/%s",
+                            "EIA returned %s. Retrying attempt %s/%s",
                             response.status_code,
                             attempt + 1,
                             self.settings.max_retries,
@@ -92,47 +92,47 @@ class EIAClient:
                         time.sleep(self.settings.retry_backoff_seconds * (attempt + 1))
                         continue
 
-                    logger.error("EIA devolvió error del servidor: %s", response.status_code)
+                    logger.error("EIA returned a server error: %s", response.status_code)
                     raise EIAResponseError(self._extract_error_message(response))
 
                 if response.is_error:
-                    logger.error("Error HTTP al consultar EIA: %s", response.status_code)
+                    logger.error("HTTP error while calling EIA: %s", response.status_code)
                     raise EIAResponseError(self._extract_error_message(response))
 
                 payload = response.json()
 
                 if not isinstance(payload, dict):
-                    logger.error("La respuesta de EIA no fue un objeto JSON.")
-                    raise EIAResponseError("La respuesta de EIA no es un JSON objeto válido.")
+                    logger.error("EIA response was not a JSON object.")
+                    raise EIAResponseError("EIA response is not a valid JSON object.")
 
                 if "response" not in payload:
-                    logger.error("La respuesta JSON no contiene la clave 'response'.")
-                    raise EIAResponseError("La respuesta JSON no contiene la clave 'response'.")
+                    logger.error("EIA JSON response does not contain the 'response' key.")
+                    raise EIAResponseError("EIA JSON response does not contain the 'response' key.")
 
-                logger.info("Página obtenida correctamente desde EIA.")
+                logger.info("EIA page retrieved successfully.")
                 return payload
 
             except httpx.RequestError as exc:
                 if attempt < self.settings.max_retries:
                     logger.warning(
-                        "Fallo de red al consultar EIA. Reintentando intento %s/%s",
+                        "Network error while calling EIA. Retrying attempt %s/%s",
                         attempt + 1,
                         self.settings.max_retries,
                     )
                     time.sleep(self.settings.retry_backoff_seconds * (attempt + 1))
                     continue
 
-                logger.exception("No fue posible comunicarse con EIA tras varios intentos.")
+                logger.exception("Could not reach EIA after multiple attempts.")
                 raise EIAClientError(
-                    "No fue posible comunicarse con la API de EIA después de varios intentos."
+                    "Could not communicate with the EIA API after multiple attempts."
                 ) from exc
 
             except ValueError as exc:
-                logger.exception("La respuesta de EIA no contiene JSON válido.")
-                raise EIAResponseError("La respuesta de EIA no contiene JSON válido.") from exc
+                logger.exception("EIA response does not contain valid JSON.")
+                raise EIAResponseError("EIA response does not contain valid JSON.") from exc
 
-        logger.error("Se agotaron los intentos al consultar EIA.")
-        raise EIAClientError("Ocurrió un error inesperado al consultar EIA.")
+        logger.error("All attempts to call EIA were exhausted.")
+        raise EIAClientError("An unexpected error occurred while calling EIA.")
 
     def get_rows(self, offset: int = 0, length: int | None = None) -> list[dict[str, Any]]:
         payload = self.get_page(offset=offset, length=length)
@@ -140,10 +140,10 @@ class EIAClient:
         data = response_block.get("data", [])
 
         if not isinstance(data, list):
-            logger.error("El campo response.data no tiene el formato esperado.")
-            raise EIAResponseError("El campo 'response.data' no tiene el formato esperado.")
+            logger.error("The response.data field does not have the expected format.")
+            raise EIAResponseError("The response.data field does not have the expected format.")
 
-        logger.info("Se obtuvieron %s filas.", len(data))
+        logger.info("Retrieved %s rows.", len(data))
         return data
 
     def get_total_rows(self) -> int:
@@ -153,11 +153,11 @@ class EIAClient:
 
         try:
             total_rows = int(total)
-            logger.info("Total de filas reportadas por EIA: %s", total_rows)
+            logger.info("EIA reported %s total rows.", total_rows)
             return total_rows
         except (TypeError, ValueError) as exc:
-            logger.error("El campo response.total no es un entero válido.")
-            raise EIAResponseError("El campo 'response.total' no es un entero válido.") from exc
+            logger.error("The response.total field is not a valid integer.")
+            raise EIAResponseError("The response.total field is not a valid integer.") from exc
 
     def close(self) -> None:
         self.client.close()

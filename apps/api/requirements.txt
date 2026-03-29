@@ -1,2 +1,11 @@
-pydantic_settings
-httpx
+
+# --- Web Framework & Server ---
+
+# --- Configuration & Auth ---
+pydantic-settings==2.13.1
+
+# --- Data Engine (The Muscle) ---
+polars==1.39.3
+
+# --- Networking ---
+httpx==0.28.1

@@ -15,7 +15,8 @@ from app.core.config import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 
-# Min fields required for a row to be considered valid for raw storage
+
+# Minimum fields required for a row to be considered valid for raw storage.
 REQUIRED_RAW_FIELDS = (
     "period",
     "facility",
@@ -26,12 +27,19 @@ REQUIRED_RAW_FIELDS = (
     "percentOutage",
 )
 
-# Fields used to determine duplicates when merging incremental extracts into raw parquet
+# Natural key used to deduplicate raw rows after merges.
 RAW_DEDUP_KEYS = (
     "period",
     "facility",
     "generator",
 )
+
+DEFAULT_STATE = {
+    "full_extract_completed": False,
+    "next_offset": None,
+    "last_successful_period": None,
+    "last_run_at": None,
+}
 
 
 @dataclass
@@ -45,6 +53,8 @@ class ExtractResult:
     raw_parquet_path: Path
     state_path: Path
     last_successful_period: str | None
+    full_extract_completed: bool
+    next_offset: int | None
 
 
 class ExtractService:
@@ -66,7 +76,7 @@ class ExtractService:
 
         return len(missing_fields) == 0, missing_fields
 
-    # use _validate_row to filter out invalid rows and log warnings for them
+    # Validate a page of rows and keep only the valid ones.
     def _filter_valid_rows(
         self,
         rows: list[dict[str, Any]],
@@ -81,7 +91,7 @@ class ExtractService:
             if not is_valid:
                 invalid_count += 1
                 logger.warning(
-                    "Registro inválido omitido en offset=%s, index=%s. Campos faltantes: %s",
+                    "Skipping invalid row at offset=%s, index=%s. Missing fields: %s",
                     offset,
                     index,
                     ", ".join(missing_fields),
@@ -95,7 +105,21 @@ class ExtractService:
     def _rows_to_df(self, rows: list[dict[str, Any]]) -> pl.DataFrame:
         return pl.DataFrame(rows)
 
-    # Merge new rows with existing raw parquet, deduplicating by RAW_DEDUP_KEYS and keeping the latest record based on 'period'
+    # Overwrite raw parquet from scratch.
+    def _write_full_raw(self, rows: list[dict[str, Any]]) -> Path:
+        df = (
+            self._rows_to_df(rows)
+            .unique(subset=list(RAW_DEDUP_KEYS), keep="last")
+            .sort(
+                by=["period", "facility", "generator"],
+                descending=[True, False, False],
+            )
+        )
+
+        df.write_parquet(self.settings.raw_parquet_path)
+        return self.settings.raw_parquet_path
+
+    # Merge newly extracted rows into the existing raw parquet.
     def _merge_and_write_raw(self, rows: list[dict[str, Any]]) -> Path:
         new_df = self._rows_to_df(rows)
 
@@ -105,45 +129,58 @@ class ExtractService:
             merged_df = (
                 pl.concat([existing_df, new_df], how="vertical_relaxed")
                 .unique(subset=list(RAW_DEDUP_KEYS), keep="last")
-                .sort(by=["period", "facility", "generator"], descending=[True, False, False])
+                .sort(
+                    by=["period", "facility", "generator"],
+                    descending=[True, False, False],
+                )
             )
         else:
             merged_df = (
                 new_df
                 .unique(subset=list(RAW_DEDUP_KEYS), keep="last")
-                .sort(by=["period", "facility", "generator"], descending=[True, False, False])
+                .sort(
+                    by=["period", "facility", "generator"],
+                    descending=[True, False, False],
+                )
             )
 
         merged_df.write_parquet(self.settings.raw_parquet_path)
         return self.settings.raw_parquet_path
 
-    def _write_full_raw(self, rows: list[dict[str, Any]]) -> Path:
-        df = (
-            self._rows_to_df(rows)
-            .unique(subset=list(RAW_DEDUP_KEYS), keep="last")
-            .sort(by=["period", "facility", "generator"], descending=[True, False, False])
-        )
-        df.write_parquet(self.settings.raw_parquet_path)
-        return self.settings.raw_parquet_path
-
-    # Load the last successful period extracted
     def _load_state(self) -> dict[str, Any]:
         state_path = self.settings.extract_state_path
 
         if not state_path.exists():
-            return {}
+            return DEFAULT_STATE.copy()
 
         try:
-            return json.loads(state_path.read_text(encoding="utf-8"))
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                logger.warning(
+                    "State file is not a JSON object. Default state will be used: %s",
+                    state_path,
+                )
+                return DEFAULT_STATE.copy()
+
+            return {**DEFAULT_STATE, **payload}
+
         except json.JSONDecodeError:
             logger.warning(
-                "El archivo de estado existe pero no contiene JSON válido. Se ignorará: %s",
+                "State file exists but does not contain valid JSON. Default state will be used: %s",
                 state_path,
             )
-            return {}
+            return DEFAULT_STATE.copy()
 
-    def _save_state(self, last_successful_period: str | None) -> Path:
+    def _save_state(
+        self,
+        *,
+        full_extract_completed: bool,
+        next_offset: int | None,
+        last_successful_period: str | None,
+    ) -> Path:
         state_payload = {
+            "full_extract_completed": full_extract_completed,
+            "next_offset": next_offset,
             "last_successful_period": last_successful_period,
             "last_run_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -154,7 +191,6 @@ class ExtractService:
         )
         return self.settings.extract_state_path
 
-    # Get the latest period from a extracted page of rows
     def _get_latest_period_from_rows(self, rows: list[dict[str, Any]]) -> str | None:
         if not rows:
             return None
@@ -162,7 +198,6 @@ class ExtractService:
         periods = [row["period"] for row in rows if row.get("period")]
         return max(periods) if periods else None
 
-    # Get the latest period from the existing raw parquet
     def _get_latest_period_from_raw(self) -> str | None:
         if not self.settings.raw_parquet_path.exists():
             return None
@@ -174,9 +209,60 @@ class ExtractService:
 
         return df.select(pl.col("period").max()).item()
 
-    # Run a full extract, ignoring any existing raw parquet or state
-    def run_full_extract(self) -> ExtractResult:
-        logger.info("Iniciando extracción completa desde EIA.")
+    # Save partial progress for a full extraction.
+    # If the extraction started from offset 0, the partial raw should replace any current raw.
+    # If the extraction is resuming from a later offset, partial rows should be merged into the existing raw.
+    def _persist_full_progress(
+        self,
+        *,
+        extracted_rows: list[dict[str, Any]],
+        start_offset: int,
+        next_offset: int,
+    ) -> tuple[Path, Path, str | None]:
+        if extracted_rows:
+            if start_offset == 0:
+                raw_parquet_path = self._write_full_raw(extracted_rows)
+            else:
+                raw_parquet_path = self._merge_and_write_raw(extracted_rows)
+        else:
+            raw_parquet_path = self.settings.raw_parquet_path
+
+        last_successful_period = self._get_latest_period_from_raw()
+
+        state_path = self._save_state(
+            full_extract_completed=False,
+            next_offset=next_offset,
+            last_successful_period=last_successful_period,
+        )
+
+        return raw_parquet_path, state_path, last_successful_period
+
+    # Save partial progress for an incremental extraction.
+    # Incremental progress is always merged into the current raw parquet.
+    def _persist_incremental_progress(
+        self,
+        *,
+        extracted_rows: list[dict[str, Any]],
+        fallback_period: str,
+    ) -> tuple[Path, Path, str | None]:
+        if extracted_rows:
+            raw_parquet_path = self._merge_and_write_raw(extracted_rows)
+        else:
+            raw_parquet_path = self.settings.raw_parquet_path
+
+        last_successful_period = self._get_latest_period_from_raw() or fallback_period
+
+        state_path = self._save_state(
+            full_extract_completed=True,
+            next_offset=None,
+            last_successful_period=last_successful_period,
+        )
+
+        return raw_parquet_path, state_path, last_successful_period
+
+    # Internal full extraction that can optionally resume from a saved offset.
+    def _run_full_extract(self, start_offset: int = 0) -> ExtractResult:
+        logger.info("Starting full extraction from EIA. start_offset=%s", start_offset)
 
         total_valid_rows = 0
         total_invalid_rows = 0
@@ -189,12 +275,40 @@ class ExtractService:
             page_size = self.settings.page_size
 
             logger.info(
-                "Total de filas reportadas por EIA: %s. Tamaño de página: %s",
+                "EIA reported %s total rows. Page size=%s",
                 total_rows_reported,
                 page_size,
             )
 
-            for offset in range(0, total_rows_reported, page_size):
+            # If the saved offset is already at or past the end, mark the full extract as complete.
+            if start_offset >= total_rows_reported:
+                raw_parquet_path = self.settings.raw_parquet_path
+                last_successful_period = self._get_latest_period_from_raw()
+                state_path = self._save_state(
+                    full_extract_completed=True,
+                    next_offset=None,
+                    last_successful_period=last_successful_period,
+                )
+
+                logger.info(
+                    "No remaining pages for full extraction. The full extract is now marked as complete."
+                )
+
+                return ExtractResult(
+                    mode="full",
+                    total_rows_reported=total_rows_reported,
+                    total_rows_valid=0,
+                    total_rows_invalid=0,
+                    pages_processed=0,
+                    pages_failed=0,
+                    raw_parquet_path=raw_parquet_path,
+                    state_path=state_path,
+                    last_successful_period=last_successful_period,
+                    full_extract_completed=True,
+                    next_offset=None,
+                )
+
+            for offset in range(start_offset, total_rows_reported, page_size):
                 try:
                     rows = client.get_rows(offset=offset, length=page_size)
                     pages_processed += 1
@@ -206,7 +320,7 @@ class ExtractService:
                     total_invalid_rows += invalid_count
 
                     logger.info(
-                        "Página procesada correctamente. offset=%s, recibidas=%s, válidas=%s, inválidas=%s",
+                        "Processed page successfully. offset=%s, received=%s, valid=%s, invalid=%s",
                         offset,
                         len(rows),
                         len(valid_rows),
@@ -215,30 +329,57 @@ class ExtractService:
 
                 except EIAAuthError:
                     logger.error(
-                        "Extracción abortada por error de autenticación. "
-                        "No tiene sentido continuar con más páginas."
+                        "Full extraction aborted because of authentication failure. Retrying the same page will not help."
                     )
                     raise
 
                 except EIAClientError as exc:
                     pages_failed += 1
+
                     logger.error(
-                        "Falló la extracción de la página con offset=%s. Error: %s",
+                        "Full extraction failed at offset=%s after exhausting retries. Error: %s",
                         offset,
                         exc,
                     )
-                    continue
 
-        if not extracted_rows:
-            logger.error("La extracción completa terminó sin filas válidas.")
-            raise EIAClientError("La extracción completa terminó sin filas válidas para guardar.")
+                    raw_parquet_path, state_path, last_successful_period = self._persist_full_progress(
+                        extracted_rows=extracted_rows,
+                        start_offset=start_offset,
+                        next_offset=offset,
+                    )
 
-        raw_parquet_path = self._write_full_raw(extracted_rows)
-        last_successful_period = self._get_latest_period_from_rows(extracted_rows)
-        state_path = self._save_state(last_successful_period)
+                    logger.warning(
+                        "Partial full-extraction progress saved. raw=%s, next_offset=%s, last_successful_period=%s",
+                        raw_parquet_path,
+                        offset,
+                        last_successful_period,
+                    )
+
+                    raise EIAClientError(
+                        "Full extraction aborted after a page failed and retries were exhausted. "
+                        "Partial progress was saved and the next run can resume from the saved offset."
+                    ) from exc
+
+        if start_offset == 0 and not extracted_rows:
+            logger.error("Full extraction finished without any valid rows.")
+            raise EIAClientError("Full extraction finished without any valid rows to store.")
+
+        if start_offset == 0:
+            raw_parquet_path = self._write_full_raw(extracted_rows)
+        elif extracted_rows:
+            raw_parquet_path = self._merge_and_write_raw(extracted_rows)
+        else:
+            raw_parquet_path = self.settings.raw_parquet_path
+
+        last_successful_period = self._get_latest_period_from_raw()
+        state_path = self._save_state(
+            full_extract_completed=True,
+            next_offset=None,
+            last_successful_period=last_successful_period,
+        )
 
         logger.info(
-            "Extracción completa finalizada. total_reportadas=%s, válidas=%s, inválidas=%s, páginas_ok=%s, páginas_fallidas=%s, archivo=%s, last_period=%s",
+            "Full extraction completed. reported=%s, valid=%s, invalid=%s, pages_ok=%s, pages_failed=%s, raw=%s, last_period=%s",
             total_rows_reported,
             total_valid_rows,
             total_invalid_rows,
@@ -258,37 +399,43 @@ class ExtractService:
             raw_parquet_path=raw_parquet_path,
             state_path=state_path,
             last_successful_period=last_successful_period,
+            full_extract_completed=True,
+            next_offset=None,
         )
 
-    # Run an incremental extract, using the last successful period from state or raw parquet as cutoff, and merging new rows with existing raw parquet
+    # Public method for a forced full extract from scratch.
+    def run_full_extract(self) -> ExtractResult:
+        return self._run_full_extract(start_offset=0)
+
+    # Public method for an incremental refresh based on the last saved successful period.
     def run_incremental_extract(self) -> ExtractResult:
-        logger.info("Iniciando extracción incremental desde EIA.")
+        logger.info("Starting incremental extraction from EIA.")
 
         state = self._load_state()
         cutoff_period = state.get("last_successful_period") or self._get_latest_period_from_raw()
 
         if not cutoff_period:
             logger.info(
-                "No existe estado previo ni raw parquet. Se ejecutará extracción completa."
+                "No previous successful period is available. Falling back to full extraction."
             )
             return self.run_full_extract()
 
         if not self.settings.raw_parquet_path.exists():
             logger.info(
-                "No existe raw parquet previo. Se ejecutará extracción completa."
+                "Raw parquet does not exist. Falling back to full extraction."
             )
             return self.run_full_extract()
-
-        logger.info(
-            "Extracción incremental con solapamiento desde period=%s",
-            cutoff_period,
-        )
 
         total_valid_rows = 0
         total_invalid_rows = 0
         pages_processed = 0
         pages_failed = 0
         extracted_rows: list[dict[str, Any]] = []
+
+        logger.info(
+            "Incremental extraction will use overlap from period=%s",
+            cutoff_period,
+        )
 
         with EIAClient(settings=self.settings) as client:
             total_rows_reported = client.get_total_rows()
@@ -304,18 +451,19 @@ class ExtractService:
 
                     if not valid_rows:
                         logger.info(
-                            "Página offset=%s sin filas válidas; se continúa con la siguiente.",
+                            "Page offset=%s returned no valid rows. Continuing to the next page.",
                             offset,
                         )
                         continue
 
-                    # I'm using desc sort on period, so the first page with a newest period older than cutoff means we can stop
+                    # Since the API is sorted by period descending, once a page is fully older
+                    # than the cutoff period there is no reason to keep scanning more pages.
                     page_periods = [row["period"] for row in valid_rows]
                     page_newest_period = max(page_periods)
 
                     if page_newest_period < cutoff_period:
                         logger.info(
-                            "Se alcanzó una página completamente anterior al corte incremental (%s). Se detiene la extracción.",
+                            "Reached a page older than the incremental cutoff (%s). Stopping scan.",
                             cutoff_period,
                         )
                         break
@@ -330,7 +478,7 @@ class ExtractService:
                     total_valid_rows += len(overlap_rows)
 
                     logger.info(
-                        "Página incremental procesada. offset=%s, válidas_en_página=%s, seleccionadas_para_merge=%s, inválidas=%s",
+                        "Processed incremental page. offset=%s, valid_in_page=%s, selected_for_merge=%s, invalid=%s",
                         offset,
                         len(valid_rows),
                         len(overlap_rows),
@@ -339,46 +487,51 @@ class ExtractService:
 
                 except EIAAuthError:
                     logger.error(
-                        "Extracción incremental abortada por error de autenticación."
+                        "Incremental extraction aborted because of authentication failure."
                     )
                     raise
 
                 except EIAClientError as exc:
                     pages_failed += 1
+
                     logger.error(
-                        "Falló la extracción incremental de la página con offset=%s. Error: %s",
+                        "Incremental extraction failed at offset=%s after exhausting retries. Error: %s",
                         offset,
                         exc,
                     )
-                    continue
 
-        if not extracted_rows:
-            logger.info(
-                "No se encontraron filas nuevas o solapadas para integrar. Se mantiene el raw actual."
-            )
-            state_path = self._save_state(cutoff_period)
+                    raw_parquet_path, state_path, last_successful_period = self._persist_incremental_progress(
+                        extracted_rows=extracted_rows,
+                        fallback_period=cutoff_period,
+                    )
 
-            return ExtractResult(
-                mode="incremental",
-                total_rows_reported=0,
-                total_rows_valid=0,
-                total_rows_invalid=total_invalid_rows,
-                pages_processed=pages_processed,
-                pages_failed=pages_failed,
-                raw_parquet_path=self.settings.raw_parquet_path,
-                state_path=state_path,
-                last_successful_period=cutoff_period,
-            )
+                    logger.warning(
+                        "Partial incremental progress saved. raw=%s, last_successful_period=%s",
+                        raw_parquet_path,
+                        last_successful_period,
+                    )
 
-        raw_parquet_path = self._merge_and_write_raw(extracted_rows)
-        last_successful_period = max(
-            cutoff_period,
-            self._get_latest_period_from_rows(extracted_rows) or cutoff_period,
+                    raise EIAClientError(
+                        "Incremental extraction aborted after a page failed and retries were exhausted. "
+                        "Partial progress was saved and the next run can resume from the saved period."
+                    ) from exc
+
+        if extracted_rows:
+            raw_parquet_path = self._merge_and_write_raw(extracted_rows)
+            last_successful_period = self._get_latest_period_from_raw() or cutoff_period
+        else:
+            raw_parquet_path = self.settings.raw_parquet_path
+            last_successful_period = cutoff_period
+
+        state_path = self._save_state(
+            full_extract_completed=True,
+            next_offset=None,
+            last_successful_period=last_successful_period,
         )
-        state_path = self._save_state(last_successful_period)
 
         logger.info(
-            "Extracción incremental finalizada. seleccionadas=%s, inválidas=%s, páginas_ok=%s, páginas_fallidas=%s, archivo=%s, last_period=%s",
+            "Incremental extraction completed. reported=%s, selected=%s, invalid=%s, pages_ok=%s, pages_failed=%s, raw=%s, last_period=%s",
+            total_rows_reported,
             total_valid_rows,
             total_invalid_rows,
             pages_processed,
@@ -389,7 +542,7 @@ class ExtractService:
 
         return ExtractResult(
             mode="incremental",
-            total_rows_reported=0,
+            total_rows_reported=total_rows_reported,
             total_rows_valid=total_valid_rows,
             total_rows_invalid=total_invalid_rows,
             pages_processed=pages_processed,
@@ -397,4 +550,48 @@ class ExtractService:
             raw_parquet_path=raw_parquet_path,
             state_path=state_path,
             last_successful_period=last_successful_period,
+            full_extract_completed=True,
+            next_offset=None,
         )
+
+    # Single entry point:
+    # - no state/raw -> full from offset 0
+    # - incomplete full -> resume full from saved offset
+    # - completed full -> incremental refresh by period
+    def run_extract(self) -> ExtractResult:
+        state = self._load_state()
+        raw_exists = self.settings.raw_parquet_path.exists()
+
+        full_extract_completed = bool(state.get("full_extract_completed"))
+        next_offset = state.get("next_offset")
+        last_successful_period = state.get("last_successful_period")
+
+        if not raw_exists and next_offset not in (None, 0):
+            logger.warning(
+                "State indicates a resumable full extraction at offset=%s, but raw parquet does not exist. "
+                "A fresh full extraction will start from offset 0.",
+                next_offset,
+            )
+            return self._run_full_extract(start_offset=0)
+
+        if not raw_exists and not full_extract_completed:
+            logger.info(
+                "No raw parquet or completed state found. Starting full extraction from offset 0."
+            )
+            return self._run_full_extract(start_offset=0)
+
+        if not full_extract_completed:
+            resume_offset = next_offset or 0
+            logger.info(
+                "Resuming incomplete full extraction from offset=%s",
+                resume_offset,
+            )
+            return self._run_full_extract(start_offset=resume_offset)
+
+        if not last_successful_period:
+            logger.info(
+                "Full extraction is marked as complete but no last_successful_period is available. "
+                "Falling back to incremental resolution logic."
+            )
+
+        return self.run_incremental_extract()
