@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     raw_dir: Path = BASE_DIR / "data" / "raw"
     model_dir: Path = BASE_DIR / "data" / "model"
 
+    # logging settings
+    logs_dir: Path = BASE_DIR / "logs"
+    log_retention_days: int = 14
+
     # Parquet files
     raw_parquet: str = "nuclear_outages_raw.parquet"
     plants_parquet: str = "plants.parquet"
@@ -93,6 +97,7 @@ class Settings(BaseSettings):
     def create_directories(self) -> None:
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.model_dir.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache
