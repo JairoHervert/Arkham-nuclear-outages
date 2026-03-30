@@ -142,7 +142,7 @@ Daily outage fact table (generator-level granularity).
 
 ### ER Diagram
 
-![ER Diagram](docs/erd.png)
+![ER Diagram](docs/ER_Diagram.png)
 
 ---
 
