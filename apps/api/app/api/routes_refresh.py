@@ -40,14 +40,14 @@ def refresh_data(request: RefreshRequest) -> RefreshResponse:
         ) from exc
 
     except RefreshServiceError as exc:
-        logger.exception("Refresh service failed while handling /refresh: %s", exc)
+        logger.error("Refresh service failed while handling /refresh: %s", exc)
         raise HTTPException(
             status_code=500,
             detail=str(exc),
         ) from exc
 
     except Exception as exc:
-        logger.exception("Unexpected error while handling /refresh: %s", exc)
+        logger.error("Unexpected error while handling /refresh: %s", exc)
         raise HTTPException(
             status_code=500,
             detail="Unexpected server error while refreshing data.",

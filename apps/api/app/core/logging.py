@@ -34,6 +34,25 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
 
+class ConsoleFormatter(logging.Formatter):
+    """
+    Console formatter that omits traceback details from log output.
+    File logs will still keep full exception traces.
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        original_exc_info = record.exc_info
+        original_exc_text = record.exc_text
+
+        try:
+            record.exc_info = None
+            record.exc_text = None
+            return super().format(record)
+        finally:
+            record.exc_info = original_exc_info
+            record.exc_text = original_exc_text
+
+
 def setup_logging() -> None:
     settings = get_settings()
 
@@ -51,7 +70,7 @@ def setup_logging() -> None:
     secret_filter = SensitiveDataFilter()
 
     # Console and file are kept concise for readability, but the file formatter includes filename and line number for easier debugging when needed.
-    console_formatter = logging.Formatter(
+    console_formatter = ConsoleFormatter(
         "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
     )
 
