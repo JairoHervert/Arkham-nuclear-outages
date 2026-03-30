@@ -12,6 +12,117 @@ import { PaginationControls } from "./pagination-controls";
 import { StatusPanel } from "./status-panel";
 
 /**
+ * Small helper that extracts useful API error information from an Axios error.
+ */
+function parseApiError(error: unknown) {
+  if (!axios.isAxiosError(error)) {
+    return {
+      status: undefined as number | undefined,
+      detail: "",
+      isNetworkError: false,
+    };
+  }
+
+  const status = error.response?.status;
+  const payload = error.response?.data;
+
+  let detail = "";
+  if (typeof payload?.detail === "string") {
+    detail = payload.detail;
+  }
+
+  return {
+    status,
+    detail,
+    isNetworkError: !error.response,
+  };
+}
+
+/**
+ * Maps /data query failures into friendly UI states.
+ */
+function buildDataStatus(error: unknown) {
+  const { status, detail, isNetworkError } = parseApiError(error);
+
+  if (detail.includes("Model parquet does not exist")) {
+    return {
+      variant: "missing-data" as const,
+      title: "No processed outage data is available yet",
+      description: (
+        <>
+          This dashboard still has no local modeled dataset.
+          <br />
+          <strong>Click the “Refresh Data” button</strong> to download and build
+          the data for the first time.
+        </>
+      ),
+    };
+  }
+
+  if (status === 401 || status === 403) {
+    return {
+      variant: "auth" as const,
+      title: "The API key is not valid for data access",
+      description:
+        "The configured read access key is not valid. Please review the frontend environment configuration.",
+    };
+  }
+
+  if (isNetworkError) {
+    return {
+      variant: "network" as const,
+      title: "We couldn’t reach the backend API",
+      description:
+        "Please verify the frontend API configuration and confirm that the backend service is running.",
+    };
+  }
+
+  return {
+    variant: "error" as const,
+    title: "We couldn’t load the outage data",
+    description:
+      "The API returned an unexpected error. Please review the backend logs and try again.",
+  };
+}
+
+/**
+ * Maps refresh failures into friendly toast messages.
+ */
+function buildRefreshFeedback(error: unknown) {
+  const { status, detail, isNetworkError } = parseApiError(error);
+
+  if (detail.includes("Could not authenticate with EIA")) {
+    return {
+      title: "The EIA API key is not valid",
+      description:
+        "The backend could not authenticate with the EIA API. Please verify the server-side EIA credentials and try again.",
+    };
+  }
+
+  if (status === 401 || status === 403) {
+    return {
+      title: "Refresh is not authorized",
+      description:
+        "The configured admin access key is not valid. Please review the frontend environment configuration.",
+    };
+  }
+
+  if (isNetworkError) {
+    return {
+      title: "Refresh could not reach the backend API",
+      description:
+        "Please verify the frontend API configuration and confirm that the backend service is running.",
+    };
+  }
+
+  return {
+    title: "Refresh finished with issues",
+    description:
+      "The pipeline or the table update did not complete successfully. Please review the backend logs.",
+  };
+}
+
+/**
  * Main page container for the outages dashboard.
  * Handles filtering, sorting, pagination, and refresh state.
  */
@@ -70,21 +181,24 @@ export function OutagesPage() {
     try {
       await refreshMutation.mutateAsync("auto");
 
-      // Explicitly reload the visible table after refresh finishes.
       const refetchResult = await outagesQuery.refetch();
 
       if (refetchResult.error) {
         throw refetchResult.error;
       }
 
-      toast.success("Data refresh completed and the table was updated.", {
+      toast.success("Data refresh completed successfully.", {
         id: loadingToastId,
+        description: "The pipeline finished and the table was updated.",
       });
     } catch (error) {
       console.error(error);
 
-      toast.error("Refresh finished with issues. The table could not be updated.", {
+      const feedback = buildRefreshFeedback(error);
+
+      toast.error(feedback.title, {
         id: loadingToastId,
+        description: feedback.description,
       });
     }
   }
@@ -117,47 +231,9 @@ export function OutagesPage() {
   const data = outagesQuery.data;
   const items = data?.items ?? [];
 
-  /**
-   * Build a more precise UI state message based on the backend response.
-   * We distinguish "no modeled files yet" from a generic API/server failure.
-   */
   const statusInfo = useMemo(() => {
-    if (refreshMutation.isError) {
-      return {
-        variant: "error" as const,
-        title: "The refresh action failed",
-        description:
-          "The pipeline could not complete successfully. Please review the backend logs and try again.",
-      };
-    }
-
     if (outagesQuery.isError) {
-      let backendDetail = "";
-
-      if (axios.isAxiosError(outagesQuery.error)) {
-        const detail = outagesQuery.error.response?.data?.detail;
-
-        if (typeof detail === "string") {
-          backendDetail = detail;
-        }
-      }
-
-      // Special case: modeled parquet files do not exist yet.
-      if (backendDetail.includes("Model parquet does not exist")) {
-        return {
-          variant: "missing-data" as const,
-          title: "No processed outage data is available yet",
-          description:
-            "This dashboard does not have local modeled data yet. Use the Refresh Data button to download and build the first dataset.",
-        };
-      }
-
-      return {
-        variant: "error" as const,
-        title: "We couldn’t load the outage data",
-        description:
-          "Please verify that the backend service is running, reachable, and has valid access to the required files.",
-      };
+      return buildDataStatus(outagesQuery.error);
     }
 
     if (!outagesQuery.isLoading && items.length === 0) {
@@ -170,13 +246,7 @@ export function OutagesPage() {
     }
 
     return null;
-  }, [
-    refreshMutation.isError,
-    outagesQuery.isError,
-    outagesQuery.error,
-    outagesQuery.isLoading,
-    items.length,
-  ]);
+  }, [outagesQuery.isError, outagesQuery.error, outagesQuery.isLoading, items.length]);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 md:px-6 lg:px-8">

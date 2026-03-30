@@ -117,10 +117,19 @@ def get_outage_data(
         ) from exc
 
     except QueryServiceError as exc:
-        logger.exception("Query service failed while handling /data: %s", exc)
+        logger.error("Query service failed while handling /data: %s", exc)
+
+        detail = str(exc)
+        status_code = 500
+
+        # When the modeled parquet files do not exist yet, surface that explicitly
+        # so the frontend can render a friendlier "download data first" state.
+        if "Model parquet does not exist" in detail:
+            status_code = 409
+
         raise HTTPException(
-            status_code=500,
-            detail="Failed to query outage data.",
+            status_code=status_code,
+            detail=detail,
         ) from exc
 
     except Exception as exc:
