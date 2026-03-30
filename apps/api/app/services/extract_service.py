@@ -137,6 +137,7 @@ class ExtractService:
             )
         )
 
+        self.settings.raw_parquet_path.parent.mkdir(parents=True, exist_ok=True)
         df.write_parquet(self.settings.raw_parquet_path)
         return self.settings.raw_parquet_path
 
@@ -165,7 +166,8 @@ class ExtractService:
                     descending=[True, False, False],
                 )
             )
-
+        
+        self.settings.raw_parquet_path.parent.mkdir(parents=True, exist_ok=True)
         merged_df.write_parquet(self.settings.raw_parquet_path)
         return self.settings.raw_parquet_path
 
@@ -210,6 +212,7 @@ class ExtractService:
             "last_run_at": datetime.now(timezone.utc).isoformat(),
         }
 
+        self.settings.extract_state_path.parent.mkdir(parents=True, exist_ok=True)
         self.settings.extract_state_path.write_text(
             json.dumps(state_payload, indent=2),
             encoding="utf-8",

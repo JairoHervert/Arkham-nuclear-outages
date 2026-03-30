@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
 
+from app.api.dependencies.auth import require_admin_access
 from app.schemas.refresh import RefreshRequest, RefreshResponse
 from app.services.refresh_service import RefreshService, RefreshServiceError
 
@@ -17,7 +18,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/refresh", tags=["refresh"])
 
 
-@router.post("", response_model=RefreshResponse)
+@router.post(
+    "",
+    response_model=RefreshResponse,
+    dependencies=[Depends(require_admin_access)],
+)
 def refresh_data(request: RefreshRequest) -> RefreshResponse:
     logger.info("Received /refresh request. requested_mode=%s", request.mode)
 

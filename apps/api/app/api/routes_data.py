@@ -4,9 +4,10 @@ import logging
 from datetime import date as DateType
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 
+from app.api.dependencies.auth import require_read_access
 from app.schemas.outage import DataQueryParams, PaginatedDataResponse
 from app.services.query_service import (
     QueryService,
@@ -29,7 +30,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/data", tags=["data"])
 
 
-@router.get("", response_model=PaginatedDataResponse)
+@router.get(
+    "",
+    response_model=PaginatedDataResponse,
+    dependencies=[Depends(require_read_access)],
+)
 def get_outage_data(
     view: Literal["generator", "facility"] = Query(
         default="generator",

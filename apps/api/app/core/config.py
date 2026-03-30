@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     eia_base_url: str = "https://api.eia.gov/v2"
     eia_endpoint: str
 
+    # API keys for authorization/authentication of incoming requests to the backend service
+    # Only the admin key can trigger a data refresh
+    arkham_nuclear_read_api_key: SecretStr
+    arkham_nuclear_admin_api_key: SecretStr
+
     # Request behavior
     request_timeout_seconds: float = 30.0
     page_size: int = 5000
