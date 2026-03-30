@@ -27,7 +27,7 @@ def main() -> int:
         pprint(
             {
                 "raw_rows": result.raw_rows,
-                "plants_rows": result.plants_rows,
+                "plants_rows": result.facilities_rows,
                 "generators_rows": result.generators_rows,
                 "outages_rows": result.outages_rows,
                 "plants_parquet_path": str(result.facilities_parquet_path),

@@ -43,7 +43,7 @@ REQUIRED_RAW_FIELDS = (
 @dataclass
 class TransformResult:
     raw_rows: int
-    plants_rows: int
+    facilities_rows: int
     generators_rows: int
     outages_rows: int
     facilities_parquet_path: Path
@@ -233,6 +233,8 @@ class TransformService:
         generators_df: pl.DataFrame,
         outages_df: pl.DataFrame,
     ) -> None:
+        self.settings.model_dir.mkdir(parents=True, exist_ok=True)
+
         plants_path = self.settings.facilities_parquet_path
         generators_path = self.settings.generators_parquet_path
         outages_path = self.settings.outages_parquet_path
@@ -259,12 +261,12 @@ class TransformService:
         self._validate_required_values(base_df)
         self._validate_model_consistency(base_df)
 
-        plants_df = self._build_plants_df(base_df)
+        facilities_df = self._build_plants_df(base_df)
         generators_df = self._build_generators_df(base_df)
         outages_df = self._build_outages_df(base_df)
 
         self._write_model_tables(
-            plants_df=plants_df,
+            plants_df=facilities_df,
             generators_df=generators_df,
             outages_df=outages_df,
         )
@@ -272,14 +274,14 @@ class TransformService:
         logger.info(
             "Transformation finished successfully. raw_rows=%s, plants_rows=%s, generators_rows=%s, outages_rows=%s",
             raw_df.height,
-            plants_df.height,
+            facilities_df.height,
             generators_df.height,
             outages_df.height,
         )
 
         return TransformResult(
             raw_rows=raw_df.height,
-            plants_rows=plants_df.height,
+            facilities_rows=facilities_df.height,
             generators_rows=generators_df.height,
             outages_rows=outages_df.height,
             facilities_parquet_path=self.settings.facilities_parquet_path,
