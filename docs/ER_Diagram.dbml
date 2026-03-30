@@ -1,0 +1,26 @@
+Table facilities {
+  facility_id varchar [pk, not null]
+  facility_name varchar [not null]
+}
+
+Table generators {
+  generator_id varchar [pk, not null, note: 'Global unique id built as facility_id + "_" + generator_code']
+  facility_id varchar [not null, ref: > facilities.facility_id]
+  generator_code varchar [not null]
+
+  indexes {
+    (facility_id, generator_code) [unique]
+  }
+}
+
+Table outages {
+  period_date date [not null]
+  generator_id varchar [not null, ref: > generators.generator_id]
+  capacity_mw double [not null]
+  outage_mw double [not null]
+  percent_outage double [not null]
+
+  indexes {
+    (period_date, generator_id) [pk]
+  }
+}

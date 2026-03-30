@@ -61,7 +61,7 @@ class Settings(BaseSettings):
 
     # Parquet files
     raw_parquet: str = "nuclear_outages_raw.parquet"
-    plants_parquet: str = "plants.parquet"
+    facilities_parquet: str = "facilities.parquet"
     generators_parquet: str = "generators.parquet"
     outages_parquet: str = "outages.parquet"
 
@@ -105,8 +105,8 @@ class Settings(BaseSettings):
         return self.raw_dir / self.raw_parquet
 
     @property
-    def plants_parquet_path(self) -> Path:
-        return self.model_dir / self.plants_parquet
+    def facilities_parquet_path(self) -> Path:
+        return self.model_dir / self.facilities_parquet
 
     @property
     def generators_parquet_path(self) -> Path:
