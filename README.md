@@ -370,6 +370,69 @@ VITE_ARKHAM_ADMIN_API_KEY=YOUR_ADMIN_API_KEY
 
 ---
 
+## Generating API Keys
+
+Before running the application, you need to generate secure API keys for read and admin access.
+
+### Step 1: Generate the Keys
+
+Open a terminal in your backend folder (with venv activated) and run:
+
+#### Windows
+
+```bash
+cd apps\api
+.\venv\Scripts\activate
+python -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('ADMIN=' + secrets.token_urlsafe(32))"
+```
+
+#### Linux / macOS
+
+```bash
+cd apps/api
+source venv/bin/activate
+python -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('ADMIN=' + secrets.token_urlsafe(32))"
+```
+
+This will output something like:
+```
+READ=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
+ADMIN=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
+```
+
+### Step 2: Paste into Backend `.env`
+
+Copy the generated keys and paste them into your backend `.env` file:
+
+**File: `.env` (at project root)**
+
+```dotenv
+arkham_nuclear_read_api_key=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
+arkham_nuclear_admin_api_key=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
+```
+
+### Step 3: Paste into Frontend `.env`
+
+Copy the **same keys** and paste them into your frontend `.env` file:
+
+**File: `apps/web/.env`**
+
+```dotenv
+VITE_ARKHAM_API_KEY=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
+VITE_ARKHAM_ADMIN_API_KEY=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
+```
+
+### Key Types Explained
+
+| Key | Purpose | Allows |
+|-----|---------|--------|
+| **READ key** | Query data only | `GET /data` ✅, `POST /refresh` ❌ |
+| **ADMIN key** | Full access | `GET /data` ✅, `POST /refresh` ✅ |
+
+Both keys are needed in the frontend to support all dashboard features.
+
+---
+
 ## Quick Start (Local)
 
 ### 1. Clone the Repository
@@ -615,23 +678,6 @@ Follow these steps to get started:
 ### Permission denied on venv activation
 - Windows: Use `.\venv\Scripts\activate` (backslashes)
 - Linux/macOS: Use `source venv/bin/activate` (forward slashes)
-
----
-
-## Suggested Assets for Documentation
-
-For a complete submission, consider including:
-
-- `docs/erd.png` - Entity relationship diagram
-- Dashboard screenshots showing filter/sort functionality
-- API response examples in the README
-- Sample log output demonstrating the logging layers
-
----
-
-## References
-
-This project includes two personal/professional references as requested in the challenge instructions.
 
 ---
 
