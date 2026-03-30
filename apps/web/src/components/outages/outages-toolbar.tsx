@@ -110,8 +110,11 @@ export function OutagesToolbar({
                   mode="single"
                   selected={selectedDate}
                   onSelect={(value) => onDateChange(toIsoDate(value))}
+                  captionLayout="dropdown"
+                  startMonth={new Date(2007, 0)}
+                  endMonth={new Date()}
+                  className="rounded-md border"
                 />
-
                 <div className="px-2 pb-2">
                   <Button
                     variant="ghost"
