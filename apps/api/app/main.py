@@ -1,26 +1,22 @@
-# from fastapi import FastAPI
-# from fastapi.middleware.cors import CORSMiddleware
-# from app.core.config import settings
+from __future__ import annotations
 
-# app = FastAPI(
-#     title=settings.PROJECT_NAME,
-#     description="API para el challenge de Arkham de monitoreo de apagones nucleares."
-# )
+from contextlib import asynccontextmanager
 
-# # Configuración de CORS para que React (puerto 3000 o 5173) pueda conectarse
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["*"], # En producción pondrías la URL de Azure
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+from fastapi import FastAPI
 
-# @app.get("/")
-# async def root():
-#     return {
-#         "message": f"Bienvenido a {settings.PROJECT_NAME}",
-#         "status": "online"
-#     }
+from app.api.routes_data import router as data_router
+from app.core.logging import setup_logging
 
-# # Aquí es donde importaremos las rutas (routes_data, routes_refresh) más adelante
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    setup_logging()
+    yield
+
+
+app = FastAPI(
+    title="Arkham Nuclear Outages API",
+    lifespan=lifespan,
+)
+
+app.include_router(data_router)
