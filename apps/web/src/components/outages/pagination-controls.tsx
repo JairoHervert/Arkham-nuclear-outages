@@ -1,4 +1,10 @@
-import { Button } from "@/components/ui/button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 
 interface PaginationControlsProps {
   page: number;
@@ -8,7 +14,8 @@ interface PaginationControlsProps {
 }
 
 /**
- * Simple previous/next pagination for server-side paginated data.
+ * Compact pagination control using the shadcn pagination component.
+ * This keeps page actions visually grouped and cleaner than spaced-apart buttons.
  */
 export function PaginationControls({
   page,
@@ -17,22 +24,42 @@ export function PaginationControls({
   onNext,
 }: PaginationControlsProps) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <Button variant="outline" onClick={onPrevious} disabled={page <= 1}>
-        Previous
-      </Button>
-
-      <span className="text-sm text-muted-foreground">
+    <div className="flex flex-col items-center justify-center gap-3 md:flex-row md:justify-between">
+      <p className="text-sm text-muted-foreground">
         Page {page} of {totalPages}
-      </span>
+      </p>
 
-      <Button
-        variant="outline"
-        onClick={onNext}
-        disabled={page >= totalPages}
-      >
-        Next
-      </Button>
+      <Pagination className="mx-0 w-auto">
+        <PaginationContent>
+          <PaginationItem>
+            <PaginationPrevious
+              href="#"
+              onClick={(event) => {
+                event.preventDefault();
+                if (page > 1) onPrevious();
+              }}
+              className={page <= 1 ? "pointer-events-none opacity-50" : ""}
+            />
+          </PaginationItem>
+
+          <PaginationItem>
+            <span className="px-4 text-sm text-muted-foreground">
+              {page} / {totalPages}
+            </span>
+          </PaginationItem>
+
+          <PaginationItem>
+            <PaginationNext
+              href="#"
+              onClick={(event) => {
+                event.preventDefault();
+                if (page < totalPages) onNext();
+              }}
+              className={page >= totalPages ? "pointer-events-none opacity-50" : ""}
+            />
+          </PaginationItem>
+        </PaginationContent>
+      </Pagination>
     </div>
   );
 }
