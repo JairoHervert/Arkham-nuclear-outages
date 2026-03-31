@@ -122,11 +122,8 @@ Daily outage fact table at generator-level granularity.
 
 ### ER Diagram
 
-The ER diagram is available at:
-
-```text
-docs/ER_Diagram.png
-```
+The ER diagram:
+![Dashboard Screenshot](docs/ER_Diagram.png)
 
 ---
 
