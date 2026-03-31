@@ -2,92 +2,79 @@
 
 A local-first data pipeline and dashboard for extracting, modeling, querying, and visualizing Nuclear Outages data from the EIA Open Data API.
 
----
-
-## Overview
-
 This project covers the full challenge flow:
 
-- **Data Connector**: paginated extraction from the EIA API into Parquet
-- **Data Model**: normalization into a simple relational model  
-- **Simple API**: query and refresh endpoints with authentication/authorization
-- **Data Preview Interface**: a web UI with filtering, sorting, pagination, refresh, and user-friendly states
+- **Data Connector**: paginated extraction from the EIA API into Parquet with **incremental extraction**
+- **Data Model**: normalization into a simple relational model with 3 tables
+- **Simple API**: query and refresh endpoints with lightweight **authentication / authorization**
+- **Data Preview Interface**: a web UI with filtering, sorting, pagination, refresh, and friendly loading / empty / error states
 
 ---
 
 ## Tech Stack
 
 ### Backend
-- **Python** - Core runtime
-- **FastAPI** - REST API framework
-- **Polars** - High-performance data processing
-  - *Elegí Polars por su capacidad de procesamiento multi-hilo y eficiencia en memoria para manejar el volumen de ~700k registros del dataset de la EIA*
-- **Pydantic / Pydantic Settings** - Data validation and configuration management
+- **Python**
+- **FastAPI**
+- **Polars**
+- **Pydantic / Pydantic Settings**
 
 ### Frontend
-- React
-- TypeScript
-- Vite
-- TanStack Query
-- shadcn/ui
-- Tailwind CSS
+- **React**
+- **TypeScript**
+- **Vite**
+- **TanStack Query**
+- **shadcn/ui**
+- **Tailwind CSS**
 
 ### Storage
-- Parquet (columnar, efficient storage format)
+- **Parquet**
 
 ---
 
 ## Project Structure
 
-```
+```text
 arkham-nuclear-outages/
 ├─ apps/
 │  ├─ api/                              # Backend application
 │  │  ├─ app/
-│  │  │  ├─ api/                        # HTTP layer: routes, dependencies
-│  │  │  ├─ connectors/                 # External integrations (EIA API client)
-│  │  │  ├─ core/                       # Shared configuration and logging
-│  │  │  ├─ schemas/                    # Pydantic schemas
-│  │  │  ├─ services/                   # Business logic: extract, transform, query
+│  │  │  ├─ api/                        # HTTP layer: routes, dependencies, request handling
+│  │  │  ├─ connectors/                 # External integrations such as the EIA API client
+│  │  │  ├─ core/                       # Shared configuration and centralized logging
+│  │  │  ├─ schemas/                    # Pydantic contracts for requests and responses
+│  │  │  ├─ services/                   # Business logic: extract, transform, query, refresh
 │  │  │  └─ main.py                     # FastAPI application entry point
 │  │  ├─ scripts/
-│  │  │  └─ run_pipeline.py             # Data pipeline orchestration script
-│  │  ├─ tests/                         # Backend tests
+│  │  │  └─ run_pipeline.py             # Manual pipeline runner: extract + transform
+│  │  ├─ tests/                         # Backend tests / manual validation scripts
 │  │  └─ requirements.txt               # Python dependencies
 │  │
 │  └─ web/                              # Frontend application
 │     ├─ src/
 │     │  ├─ api/                        # Frontend API clients
-│     │  ├─ components/                 # UI components
+│     │  ├─ components/                 # UI and feature components
 │     │  ├─ hooks/                      # React hooks
-│     │  ├─ lib/                        # Shared utilities
+│     │  ├─ lib/                        # Shared frontend utilities
 │     │  ├─ App.tsx                     # Root component
 │     │  ├─ main.tsx                    # Frontend entry point
 │     │  └─ index.css                   # Global styles
-│     ├─ .env.example                   # Example environment variables
-│     ├─ package.json                   # Dependencies and scripts
+│     ├─ .env.example                   # Frontend environment variable example
+│     ├─ package.json                   # Frontend dependencies and scripts
 │     └─ vite.config.ts                 # Vite configuration
 │
 ├─ data/
-│  ├─ raw/                              # Raw Parquet from EIA
+│  ├─ raw/                              # Raw Parquet extracted from EIA
 │  ├─ model/                            # Normalized Parquet tables
 │  └─ state/                            # Extraction state for incremental runs
 │
 ├─ docs/
-│  └─ erd.png                           # ER diagram
+│  └─ ER_Diagram.png                    # ER diagram
 │
-├─ logs/                                # Application logs (rotated daily)
-├─ .env.example                         # Example environment variables
+├─ logs/                                # Application logs
+├─ .env.example                         # Backend environment variable example
 └─ README.md
 ```
-
-### Architecture Rationale
-
-The folder structure is organized around **functional domains** (api, web, data, docs) rather than technical layers. This approach:
-- Separates concerns clearly (backend, frontend, data storage, documentation)
-- Allows scaling of each component independently
-- Makes it easy to locate and modify features within each domain
-- Supports future growth without major restructuring
 
 ---
 
@@ -97,12 +84,7 @@ The dataset is normalized into **3 tables**, with **generator-level outages** as
 
 ### Design Rationale
 
-Se eligió **Generator-level outages** como fuente principal para conservar el mayor nivel de detalle operativo posible y permitir identificar qué generador presenta afectaciones. A partir de esta fuente también se construye una vista agregada por planta para facilitar el análisis general.
-
-This dual-level approach provides:
-- **Operational precision**: Identify specific generator failures and impacts
-- **Plant-level analysis**: Aggregate views for facility-wide operational insights
-- **Flexibility**: Support both detailed and summarized reporting
+Generator-level outages were chosen as the main source because they preserve the highest operational granularity and make it possible to identify which specific generator is affected. A facility-level view is then derived from the same modeled data to support aggregated analysis.
 
 ### Table Definitions
 
@@ -119,30 +101,47 @@ Generator-level reference table.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| generator_id | PK | Composite identifier (derived) |
-| facility_id | FK → facilities.facility_id | Reference to parent facility |
-| generator_code | string | Generator code within facility |
+| generator_id | PK | Derived generator identifier |
+| facility_id | FK → facilities.facility_id | Parent facility |
+| generator_code | string | Generator code within the facility |
 
-**Design Note**: `generator_id` is derived as `facility_id + "_" + generator_code` because:
-- `generator_code` alone is not globally unique across all facilities
-- A composite identifier simplifies joins in queries by using a single column instead of a composite key
+**Design note**: `generator_id` is derived as `facility_id + "_" + generator_code` because `generator_code` alone is not globally unique across all facilities.
 
 #### 3. `outages`
-Daily outage fact table (generator-level granularity).
+Daily outage fact table at generator-level granularity.
 
 | Column | Type | Description |
 |--------|------|-------------|
 | period_date | date | Reporting date |
-| generator_id | FK → generators.generator_id | Reference to generator |
+| generator_id | FK → generators.generator_id | Generator reference |
 | capacity_mw | float | Installed capacity in megawatts |
 | outage_mw | float | Outage capacity in megawatts |
 | percent_outage | float | Percentage of capacity affected |
 
-**Logical Primary Key**: `(period_date, generator_id)`
+**Logical primary key**: `(period_date, generator_id)`
 
 ### ER Diagram
 
-![ER Diagram](docs/ER_Diagram.png)
+The ER diagram is available at:
+
+```text
+docs/ER_Diagram.png
+```
+
+---
+
+## Authentication & Authorization
+
+A lightweight API-key-based access control layer was added to the API service.
+
+**Header**: `X-Arkham-API-Key`
+
+| Endpoint | Read Key | Admin Key |
+|----------|----------|-----------|
+| `GET /data` | ✅ | ✅ |
+| `POST /refresh` | ❌ | ✅ |
+
+This approach is intentionally simple and appropriate for the scope of the challenge.
 
 ---
 
@@ -152,27 +151,29 @@ Daily outage fact table (generator-level granularity).
 
 Returns outage data with filtering, sorting, and pagination.
 
-**Authentication**: Read API Key or Admin API Key required
+**Authentication**: Read API key or Admin API key required
 
-**Query Parameters**
+#### Query Parameters
 
 | Parameter | Values | Description |
 |-----------|--------|-------------|
 | `view` | `generator` \| `facility` | Data view type |
-| `date` | YYYY-MM-DD | Exact date filter |
+| `date` | `YYYY-MM-DD` | Exact date filter |
 | `search` | string | Free-text search |
 | `page` | integer | Page number (1-indexed) |
 | `page_size` | integer | Rows per page |
 | `sort_by` | string | Column name to sort by |
 | `sort_order` | `asc` \| `desc` | Sort direction |
 
-**Example Request**
+#### Example Request
+
 ```bash
 curl -X GET "http://127.0.0.1:8000/data?view=generator&page=1&page_size=10&sort_by=period_date&sort_order=desc" \
   -H "X-Arkham-API-Key: YOUR_READ_API_KEY"
 ```
 
-**Example Response**
+#### Example Response
+
 ```json
 {
   "view": "generator",
@@ -195,24 +196,29 @@ curl -X GET "http://127.0.0.1:8000/data?view=generator&page=1&page_size=10&sort_
 }
 ```
 
+---
+
 ### `POST /refresh`
 
-Triggers the data refresh pipeline (extraction, transformation, and model building).
+Triggers the data refresh pipeline (extract + transform + model rebuild).
 
-**Authentication**: Admin API Key required
+**Authentication**: Admin API key required
 
-**Request Body**
+#### Request Body
+
 ```json
 {
   "mode": "auto"
 }
 ```
 
-**Supported Modes**
-- `auto` - Incremental extraction (only fetches new data since last run)
-- `full` - Full re-extraction from the beginning
+#### Supported Modes
 
-**Example Request**
+- `auto` — lets the extraction service decide between full, resume, or incremental extraction
+- `full` — forces a full extraction from scratch
+
+#### Example Request
+
 ```bash
 curl -X POST "http://127.0.0.1:8000/refresh" \
   -H "Content-Type: application/json" \
@@ -220,7 +226,8 @@ curl -X POST "http://127.0.0.1:8000/refresh" \
   -d "{\"mode\":\"auto\"}"
 ```
 
-**Example Response**
+#### Example Response
+
 ```json
 {
   "status": "success",
@@ -229,41 +236,17 @@ curl -X POST "http://127.0.0.1:8000/refresh" \
     "mode": "incremental",
     "total_rows_reported": 694042,
     "total_rows_valid": 95,
-    "total_rows_invalid": 0,
     "pages_processed": 2,
-    "pages_failed": 0,
-    "raw_parquet_path": "data/raw/nuclear_outages_raw.parquet",
-    "state_path": "data/state/extract_state.json",
-    "last_successful_period": "2026-03-27",
-    "full_extract_completed": true,
-    "next_offset": null
+    "pages_failed": 0
   },
   "transform": {
     "raw_rows": 694042,
     "facilities_rows": 99,
     "generators_rows": 104,
-    "outages_rows": 694042,
-    "facilities_parquet_path": "data/model/facilities.parquet",
-    "generators_parquet_path": "data/model/generators.parquet",
-    "outages_parquet_path": "data/model/outages.parquet"
+    "outages_rows": 694042
   }
 }
 ```
-
----
-
-## Authentication & Authorization
-
-A lightweight API-key-based authentication and authorization layer was added to the API. Read/admin access is allowed for `/data`, while only admin access is allowed for `/refresh`.
-
-**Header**: `X-Arkham-API-Key`
-
-**Access Policy**
-
-| Endpoint | Read Key | Admin Key |
-|----------|----------|-----------|
-| `GET /data` | ✅ | ✅ |
-| `POST /refresh` | ❌ | ✅ |
 
 ---
 
@@ -271,115 +254,96 @@ A lightweight API-key-based authentication and authorization layer was added to 
 
 The project uses two complementary logging layers:
 
-### Uvicorn Access Logs
-- Shown in the console during local execution
-- Monitor incoming HTTP requests and response status codes
-- Useful for observing API traffic in real-time
+- **Uvicorn access logs** in the console for incoming HTTP requests and status codes
+- **Application logs** in `logs/app.log` for extraction, transformation, query, and refresh flow
 
-### Application Logs
-- Written through a centralized logging setup into `logs/app.log`
-- Capture the business flow of the system: data queries, transformations, and service-level events
-- **Daily rotation**: A new log file is created for each calendar day, with rotation occurring at midnight
-- **Retention policy**: Logs are retained for a configurable number of days (default: 14 days) before automatic deletion
-- This approach supports auditing and maintains historical records for compliance
-
-For project documentation and debugging, the most relevant logs are the application logs, since they reflect the internal behavior of the pipeline and API services.
+Application logs are rotated daily and are the main source for troubleshooting backend behavior.
 
 ---
 
 ## Environment Variables
 
-### Backend (`.env` at project root)
+### 1. EIA API Key (Backend)
 
-Create a `.env` file in the project root by copying `.env.example`:
+To access the EIA Open Data API, create an API key here:
 
-```bash
-cp .env.example .env
-# or on Windows: copy .env.example .env
+```text
+https://www.eia.gov/opendata/
 ```
 
-Then edit `.env` with the following variables:
+This key is required in the backend root `.env` as:
 
 ```dotenv
-# EIA API Configuration
+EIA_API_KEY=YOUR_EIA_API_KEY
+```
+
+### 2. Backend (`.env` at project root)
+
+Create a `.env` file in the **project root** by copying `.env.example`:
+
+#### Windows
+```bash
+copy .env.example .env
+```
+
+#### Linux / macOS
+```bash
+cp .env.example .env
+```
+
+Then edit it with:
+
+```dotenv
+# EIA API configuration
 EIA_API_KEY=YOUR_EIA_API_KEY
 EIA_ENDPOINT=/nuclear-outages/generator-nuclear-outages/data/
 
-# Request Configuration
-# Timeout in seconds for HTTP requests to the EIA API
+# Request behavior
 REQUEST_TIMEOUT_SECONDS=15
-
-# Number of records to fetch per API page (larger = fewer requests, but more memory)
 PAGE_SIZE=5000
-
-# Maximum number of retries for failed API requests
 MAX_RETRIES=3
-
-# Backoff time in seconds between retry attempts (exponential multiplier)
 RETRY_BACKOFF_SECONDS=1.5
 
-# Logging Configuration
-# Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+# Logging
 LOG_LEVEL=INFO
-
-# Number of days to retain application logs before deletion
 LOG_RETENTION_DAYS=14
 
-# Internal API Keys for Authentication and Authorization
-# These keys control access to your API endpoints
-# Generate secure keys with:
-#   Windows: .\venv\Scripts\python.exe -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('ADMIN=' + secrets.token_urlsafe(32))"
-#   Linux/macOS: python -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('ADMIN=' + secrets.token_urlsafe(32))"
-
-# Read-only API key (allows GET /data, denies POST /refresh)
+# Internal API keys
 arkham_nuclear_read_api_key=YOUR_READ_API_KEY
-
-# Admin API key (allows both GET /data and POST /refresh)
 arkham_nuclear_admin_api_key=YOUR_ADMIN_API_KEY
 ```
 
-### Frontend (`apps/web/.env`)
+### 3. Frontend (`apps/web/.env`)
 
-Navigate to the frontend folder and create a `.env` file by copying `.env.example`:
+Create a `.env` file inside `apps/web` by copying `apps/web/.env.example`:
 
+#### Windows
+```bash
+cd apps\web
+copy .env.example .env
+```
+
+#### Linux / macOS
 ```bash
 cd apps/web
 cp .env.example .env
-# or on Windows: copy .env.example .env
 ```
 
-Edit `apps/web/.env` with the following variables:
+Then edit it with:
 
 ```dotenv
-# Backend API Base URL
-# The URL where your FastAPI backend is running
-# For local development: http://127.0.0.1:8000
-# For production: https://your-api-domain.com
 VITE_API_BASE_URL=http://127.0.0.1:8000
-
-# Read-only API Key
-# Use this key for general data queries (GET /data)
-# Must match arkham_nuclear_read_api_key from backend .env
 VITE_ARKHAM_API_KEY=YOUR_READ_API_KEY
-
-# Admin API Key
-# Use this key for administrative actions like data refresh (POST /refresh)
-# Must match arkham_nuclear_admin_api_key from backend .env
 VITE_ARKHAM_ADMIN_API_KEY=YOUR_ADMIN_API_KEY
 ```
 
----
+### 4. Generate Internal API Keys (Read/Admin)
 
-## Generating API Keys
+These are the project’s own internal API keys used to protect `/data` and `/refresh`.
 
-Before running the application, you need to generate secure API keys for read and admin access.
-
-### Step 1: Generate the Keys
-
-Open a terminal in your backend folder (with venv activated) and run:
+Generate them from the backend environment:
 
 #### Windows
-
 ```bash
 cd apps\api
 .\venv\Scripts\activate
@@ -387,297 +351,219 @@ python -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('AD
 ```
 
 #### Linux / macOS
-
 ```bash
 cd apps/api
 source venv/bin/activate
 python -c "import secrets; print('READ=' + secrets.token_urlsafe(32)); print('ADMIN=' + secrets.token_urlsafe(32))"
 ```
 
-This will output something like:
-```
-READ=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
-ADMIN=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
-```
+Use the generated values in these variables:
 
-### Step 2: Paste into Backend `.env`
-
-Copy the generated keys and paste them into your backend `.env` file:
-
-**File: `.env` (at project root)**
-
+#### Backend root `.env`
 ```dotenv
-arkham_nuclear_read_api_key=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
-arkham_nuclear_admin_api_key=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
+arkham_nuclear_read_api_key=YOUR_GENERATED_READ_KEY
+arkham_nuclear_admin_api_key=YOUR_GENERATED_ADMIN_KEY
 ```
 
-### Step 3: Paste into Frontend `.env`
-
-Copy the **same keys** and paste them into your frontend `.env` file:
-
-**File: `apps/web/.env`**
-
+#### Frontend `apps/web/.env`
 ```dotenv
-VITE_ARKHAM_API_KEY=ZazYvE_zA256KgoR5mOlo-NqPuTfA9ez9wFMwALcKXM
-VITE_ARKHAM_ADMIN_API_KEY=GZJUPXnI4D3o_YGSac4dp8xgwnMZd4FTW2fd2wffZws
+VITE_ARKHAM_API_KEY=YOUR_GENERATED_READ_KEY
+VITE_ARKHAM_ADMIN_API_KEY=YOUR_GENERATED_ADMIN_KEY
 ```
-
-### Key Types Explained
-
-| Key | Purpose | Allows |
-|-----|---------|--------|
-| **READ key** | Query data only | `GET /data` ✅, `POST /refresh` ❌ |
-| **ADMIN key** | Full access | `GET /data` ✅, `POST /refresh` ✅ |
-
-Both keys are needed in the frontend to support all dashboard features.
 
 ---
 
 ## Quick Start (Local)
 
-### 1. Clone the Repository
+Before starting, make sure you have the following installed:
+
+- **Python 3**
+- **Node.js and npm**
+
+### 1. Clone the repository
 
 ```bash
-git clone <your-repository-url>
-cd arkham-nuclear-outages
+git clone https://github.com/JairoHervert/Arkham-nuclear-outages
+cd Arkham-nuclear-outages
 ```
 
-### 2. Backend Setup
+### 2. Backend setup
 
 #### Windows
-
 ```bash
-# Navigate to backend
 cd apps\api
-
-# Create virtual environment
 python -m venv venv
-
-# Activate virtual environment
 .\venv\Scripts\activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Copy example environment file and edit it
+cd ..\..
 copy .env.example .env
-# Now open .env and fill in your API keys
-
-# Run the backend
-python -m uvicorn app.main:app --reload
 ```
 
 #### Linux / macOS
-
 ```bash
-# Navigate to backend
 cd apps/api
-
-# Create virtual environment
 python -m venv venv
-
-# Activate virtual environment
 source venv/bin/activate
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Copy example environment file and edit it
+cd ../..
 cp .env.example .env
-# Now open .env and fill in your API keys
-
-# Run the backend
-python -m uvicorn app.main:app --reload
 ```
 
-**Backend available at**:
-- API: http://127.0.0.1:8000
-- Swagger Docs: http://127.0.0.1:8000/docs
+After copying the file, edit the root `.env` and add:
+- EIA API key
+- read/admin internal API keys
 
-### 3. Frontend Setup
+### 3. Frontend setup
 
 #### Windows
-
 ```bash
-# Navigate to frontend
 cd apps\web
-
-# Install dependencies
 npm install
-
-# Copy example environment file and edit it
 copy .env.example .env
-# Now open .env and fill in your API keys
-
-# Run the frontend
-npm run dev
 ```
 
 #### Linux / macOS
+```bash
+cd apps/web
+npm install
+cp .env.example .env
+```
+
+After copying the file, edit `apps/web/.env` and add:
+- backend base URL
+- read/admin frontend API keys
+
+### 4. Run the backend
+
+From `apps/api`:
 
 ```bash
-# Navigate to frontend
-cd apps/web
+python -m uvicorn app.main:app --reload
+```
 
-# Install dependencies
-npm install
+Backend URLs:
+- Base API: `http://127.0.0.1:8000`
+- Docs / Swagger: `http://127.0.0.1:8000/docs`
+- Query endpoint: `http://127.0.0.1:8000/data`
+- Refresh endpoint: `http://127.0.0.1:8000/refresh`
 
-# Copy example environment file and edit it
-cp .env.example .env
-# Now open .env and fill in your API keys
+### 5. Run the frontend
 
-# Run the frontend
+From `apps/web`:
+
+```bash
 npm run dev
 ```
 
-**Frontend available at**: http://127.0.0.1:5173
+Open the dashboard at the default Vite development URL shown in the terminal (commonly `http://127.0.0.1:5173` or `http://localhost:5173`).
 
 ---
 
 ## Data Pipeline
 
-Before you can view data in the dashboard, you need to run the data pipeline to extract and transform data from the EIA API.
+The project includes a dedicated pipeline script that:
+1. extracts data from the EIA API
+2. stores the raw dataset as Parquet
+3. transforms the raw dataset into the modeled tables:
+   - `facilities.parquet`
+   - `generators.parquet`
+   - `outages.parquet`
 
-### Using the Pipeline Script (Recommended)
+### Run the pipeline manually
 
-The `run_pipeline.py` script orchestrates the entire extraction and transformation process.
-
-#### Option 1: From Project Root (Windows)
-
-```bash
-.\apps\api\venv\Scripts\python.exe .\apps\api\scripts\run_pipeline.py
-```
-
-#### Option 2: From Backend Folder (Windows) - Simpler
-
+#### Windows
 ```bash
 cd apps\api
 .\venv\Scripts\python.exe .\scripts\run_pipeline.py
 ```
 
-#### Option 1: From Project Root (Linux/macOS)
-
-```bash
-./apps/api/venv/bin/python ./apps/api/scripts/run_pipeline.py
-```
-
-#### Option 2: From Backend Folder (Linux/macOS) - Simpler
-
+#### Linux / macOS
 ```bash
 cd apps/api
 source venv/bin/activate
 python scripts/run_pipeline.py
 ```
 
-### Pipeline Modes
+### Force a full extraction
 
-**Default (Incremental Extraction)**
-
-```bash
-cd apps\api
-.\venv\Scripts\python.exe .\scripts\run_pipeline.py
-```
-
-**Full Re-extraction**
-
+#### Windows
 ```bash
 cd apps\api
 .\venv\Scripts\python.exe .\scripts\run_pipeline.py --mode full
 ```
 
-**What the Pipeline Does**
-1. Fetches data from the EIA API (incremental or full based on mode)
-2. Persists raw data to Parquet format
-3. Transforms and normalizes data into the relational model
-4. Builds the three core tables: facilities, generators, outages
-5. Saves state for the next incremental run (incremental mode only)
+#### Linux / macOS
+```bash
+cd apps/api
+source venv/bin/activate
+python scripts/run_pipeline.py --mode full
+```
 
-### Alternative: Dashboard Refresh
-
-Once the backend is running, you can also trigger the pipeline from the web dashboard:
-
-1. Open http://127.0.0.1:5173
-2. Click the **Refresh Data** button
-3. Select desired mode (auto or full)
-4. Wait for the operation to complete
+### Alternative
+The first data download can also be triggered from the frontend with the **Refresh Data** button.
 
 ---
 
 ## Recommended First Run
 
-Follow these steps to get started:
-
-1. **Clone and set up the backend** (follow Backend Setup above)
-2. **Clone and set up the frontend** (follow Frontend Setup above)
-3. **Run the data pipeline** (follow Data Pipeline section)
-4. **Start the backend**: `python -m uvicorn app.main:app --reload` (from `apps/api` with venv activated)
-5. **Start the frontend**: `npm run dev` (from `apps/web`)
-6. **Open the dashboard**: http://127.0.0.1:5173
-7. **View the extracted data** - it should now be available in the tables
+1. Configure backend `.env`
+2. Configure frontend `apps/web/.env`
+3. Run the backend
+4. Run the frontend
+5. Open the dashboard
+6. If no modeled data exists yet, click **Refresh Data**
+7. Optionally, you may run the pipeline manually first using `run_pipeline.py`
 
 ---
 
 ## Frontend Features
 
-- Generator and facility view options
-- Server-side filtering, sorting, and pagination
-- Data refresh trigger with mode selection
-- Loading states and empty data states
-- User-friendly API error messages
-- Help dialog and column tooltips
-- Responsive design with Tailwind CSS
+- generator and facility views
+- server-side filtering, sorting, and pagination
+- refresh action from the UI
+- loading, missing-data, empty-state, and API error handling
+- help dialog and column tooltips
+- responsive layout with Tailwind CSS and shadcn/ui
 
 ---
 
 ## Design Decisions
 
-- **Polars over Pandas**: Elegí Polars por su capacidad de procesamiento multi-hilo y eficiencia en memoria para manejar el volumen de ~700k registros del dataset de la EIA
-- **Parquet storage**: Primary storage layer for columnar efficiency and compression
-- **Simple 3-table model**: Intentionally kept minimal for clarity and query efficiency
-- **Generator-level source**: Primary granularity captures operational detail; facility aggregates are derived views
-- **Derived generator_id**: `facility_id + "_" + generator_code` to ensure global uniqueness and simplify joins
-- **Logical composite primary key**: `(period_date, generator_id)` on outages table for efficient querying
-- **Server-side operations**: Filtering, sorting, and pagination handled by API for scalability
-- **Lightweight authentication**: API-key based for simplicity and sufficient for the project scope
-- **Folder-based architecture**: Functional domains allow independent scaling without restructuring
-
----
-
-## Implemented Features (Bonus Points)
-
-✅ **Incremental data extraction** - Avoids re-downloading already-fetched data by tracking extraction state, improving performance on repeated runs  
-✅ **Lightweight API-key authentication and authorization** - Separates read/admin access to provide fine-grained control over API endpoints  
-✅ **Daily log rotation** - Application logs are rotated at midnight, with historical retention for auditing and compliance  
-✅ **Complete data pipeline** - Extract → Transform → Query orchestration with state management  
-✅ **Web dashboard** - Full CRUD operations with filtering, sorting, and pagination  
-✅ **Error handling and logging** - Comprehensive logging at application and HTTP layers  
-
----
-
-## Not Yet Implemented
-
-- Cloud deployment (AWS, GCP, Azure)
-- Automated unit/integration tests
-- Advanced caching strategies
-- Rate limiting and backpressure handling
+- **Polars over Pandas** for multi-threaded processing and memory efficiency on a dataset of roughly 700k records
+- **Parquet** as the primary storage layer for efficient columnar reads and writes
+- **Simple 3-table model** to keep the solution easy to understand and query
+- **Generator-level source** as the main operational granularity, with facility-level summaries derived from it
+- **Derived `generator_id`** to ensure global uniqueness and simplify joins
+- **Server-side filtering, sorting, and pagination** to keep the frontend lightweight
+- **Lightweight API-key auth** as a practical solution for the scope of this challenge
+- **Functional folder structure** so backend, frontend, data, and documentation remain clearly separated
 
 ---
 
 ## Troubleshooting
 
-### "No data available" in dashboard
-- Ensure the pipeline has run successfully (check `logs/app.log`)
-- Verify that data files exist in `data/model/` directory
-- Check that `EIA_API_KEY` is valid and configured in `.env`
+### Dashboard says no processed data is available
+No modeled parquet files have been generated yet. Use **Refresh Data** in the frontend or run `run_pipeline.py` manually.
 
-### API connection errors
-- Verify backend is running on http://127.0.0.1:8000
-- Check `VITE_API_BASE_URL` in frontend `.env`
-- Ensure API keys in frontend `.env` match backend keys
+### Frontend cannot reach backend
+Check:
+- backend is running
+- `VITE_API_BASE_URL` is correct
+- CORS is enabled for the frontend origin
 
-### Permission denied on venv activation
-- Windows: Use `.\venv\Scripts\activate` (backslashes)
-- Linux/macOS: Use `source venv/bin/activate` (forward slashes)
+### Data access is unauthorized
+Check that the frontend keys in `apps/web/.env` match the backend keys in the root `.env`.
+
+### EIA refresh fails
+Verify that `EIA_API_KEY` in the root `.env` is valid and that the backend can reach the EIA API.
+
+---
+
+## Dashboard Screenshot
+
+Example:
+
+![Dashboard Screenshot](docs/dashboard.png)
 
 ---
 
