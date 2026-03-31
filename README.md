@@ -408,7 +408,7 @@ cp .env.example .env
 
 After copying the file, edit the root `.env` and add:
 - EIA API key
-- read/admin internal API keys
+- read/admin internal API keys *(see the previous Environment Variables section for how to generate them)*
 
 ### 3. Frontend setup
 
@@ -428,14 +428,19 @@ cp .env.example .env
 
 After copying the file, edit `apps/web/.env` and add:
 - backend base URL
-- read/admin frontend API keys
+- read/admin frontend API keys *(generated as explained in the previous Environment Variables section)*
 
 ### 4. Run the backend
 
 From `apps/api`:
 
+#### Windows
 ```bash
-python -m uvicorn app.main:app --reload
+.\venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+#### Linux / macOS
+```bash
+./venv/bin/python -m uvicorn app.main:app --reload
 ```
 
 Backend URLs:
