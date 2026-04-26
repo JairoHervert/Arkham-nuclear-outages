@@ -14,12 +14,12 @@ Policy:
 
 
 def require_read_access(
-    x_api_key: str | None = Header(default=None, alias="X-Arkham-API-Key")
+    x_api_key: str | None = Header(default=None, alias="X-Internal-API-Key")
 ) -> None:
     settings = get_settings()
 
-    read_key = settings.arkham_nuclear_read_api_key.get_secret_value()
-    admin_key = settings.arkham_nuclear_admin_api_key.get_secret_value()
+    read_key = settings.nuclear_outages_read_api_key.get_secret_value()
+    admin_key = settings.nuclear_outages_admin_api_key.get_secret_value()
 
     if x_api_key is None:
         raise HTTPException(
@@ -35,12 +35,12 @@ def require_read_access(
 
 
 def require_admin_access(
-    x_api_key: str | None = Header(default=None, alias="X-Arkham-API-Key")
+    x_api_key: str | None = Header(default=None, alias="X-Internal-API-Key")
 ) -> None:
     settings = get_settings()
 
-    read_key = settings.arkham_nuclear_read_api_key.get_secret_value()
-    admin_key = settings.arkham_nuclear_admin_api_key.get_secret_value()
+    read_key = settings.nuclear_outages_read_api_key.get_secret_value()
+    admin_key = settings.nuclear_outages_admin_api_key.get_secret_value()
 
     if x_api_key is None:
         raise HTTPException(

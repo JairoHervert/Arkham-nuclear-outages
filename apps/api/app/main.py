@@ -17,7 +17,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Arkham Nuclear Outages API",
+    title="EIA Nuclear Outages API",
     lifespan=lifespan,
 )
 

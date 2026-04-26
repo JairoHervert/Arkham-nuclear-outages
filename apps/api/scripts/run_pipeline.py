@@ -16,7 +16,7 @@ from app.services.transform_service import TransformService, TransformServiceErr
 logger = logging.getLogger(__name__)
 
 """
-Pipeline runner script for the Arkham Nuclear Outages project.
+Pipeline runner script for the EIA Nuclear Outages project.
 
 This script:
 1. extracts data from the EIA API
@@ -26,7 +26,7 @@ This script:
    - generators.parquet
    - outages.parquet
 
-It is intended as the manual executable script requested by the challenge.
+It is intended as a manual executable script for running the local data pipeline.
 """
 
 

@@ -1,13 +1,13 @@
-# Arkham Nuclear Outages
+# EIA Nuclear Outages Pipeline
 
-A local-first data pipeline and dashboard for extracting, modeling, querying, and visualizing Nuclear Outages data from the EIA Open Data API.
+A local-first data pipeline and dashboard for extracting, modeling, querying, and visualizing nuclear outage data from the EIA Open Data API.
 
-This project covers the full challenge flow:
+This project implements an end-to-end data workflow:
 
-- **Data Connector**: paginated extraction from the EIA API into Parquet with **incremental extraction**
-- **Data Model**: normalization into a simple relational model with 3 tables
-- **Simple API**: query and refresh endpoints with lightweight **authentication / authorization**
-- **Data Preview Interface**: a web UI with filtering, sorting, pagination, refresh, and friendly loading / empty / error states
+- **Data Extraction**: paginated extraction from the EIA API into Parquet with incremental extraction
+- **Data Modeling**: normalization into a simple relational model with 3 tables
+- **REST API**: query and refresh endpoints with lightweight authentication / authorization
+- **Web Dashboard**: a web UI with filtering, sorting, pagination, refresh, and friendly loading / empty / error states
 
 ---
 
@@ -35,7 +35,7 @@ This project covers the full challenge flow:
 ## Project Structure
 
 ```text
-arkham-nuclear-outages/
+EIA-Nuclear-Outages-Pipeline/
 ├─ apps/
 │  ├─ api/                              # Backend application
 │  │  ├─ app/
@@ -123,7 +123,7 @@ Daily outage fact table at generator-level granularity.
 ### ER Diagram
 
 The ER diagram:
-![Dashboard Screenshot](docs/ER_Diagram.png)
+![ER Diagram](docs/ER_Diagram.png)
 
 ---
 
@@ -131,14 +131,14 @@ The ER diagram:
 
 A lightweight API-key-based access control layer was added to the API service.
 
-**Header**: `X-Arkham-API-Key`
+**Header**: `X-Internal-API-Key`
 
 | Endpoint | Read Key | Admin Key |
 |----------|----------|-----------|
 | `GET /data` | ✅ | ✅ |
 | `POST /refresh` | ❌ | ✅ |
 
-This approach is intentionally simple and appropriate for the scope of the challenge.
+This approach is intentionally simple and appropriate for the scope of this project.
 
 ---
 
@@ -166,7 +166,7 @@ Returns outage data with filtering, sorting, and pagination.
 
 ```bash
 curl -X GET "http://127.0.0.1:8000/data?view=generator&page=1&page_size=10&sort_by=period_date&sort_order=desc" \
-  -H "X-Arkham-API-Key: YOUR_READ_API_KEY"
+  -H "X-Internal-API-Key: YOUR_READ_API_KEY"
 ```
 
 #### Example Response
@@ -219,7 +219,7 @@ Triggers the data refresh pipeline (extract + transform + model rebuild).
 ```bash
 curl -X POST "http://127.0.0.1:8000/refresh" \
   -H "Content-Type: application/json" \
-  -H "X-Arkham-API-Key: YOUR_ADMIN_API_KEY" \
+  -H "X-Internal-API-Key: YOUR_ADMIN_API_KEY" \
   -d "{\"mode\":\"auto\"}"
 ```
 
@@ -306,8 +306,8 @@ LOG_LEVEL=INFO
 LOG_RETENTION_DAYS=14
 
 # Internal API keys
-arkham_nuclear_read_api_key=YOUR_READ_API_KEY
-arkham_nuclear_admin_api_key=YOUR_ADMIN_API_KEY
+NUCLEAR_OUTAGES_READ_API_KEY=YOUR_READ_API_KEY
+NUCLEAR_OUTAGES_ADMIN_API_KEY=YOUR_ADMIN_API_KEY
 ```
 
 ### 3. Frontend (`apps/web/.env`)
@@ -330,8 +330,8 @@ Then edit it with:
 
 ```dotenv
 VITE_API_BASE_URL=http://127.0.0.1:8000
-VITE_ARKHAM_API_KEY=YOUR_READ_API_KEY
-VITE_ARKHAM_ADMIN_API_KEY=YOUR_ADMIN_API_KEY
+VITE_NUCLEAR_OUTAGES_READ_API_KEY=YOUR_READ_API_KEY
+VITE_NUCLEAR_OUTAGES_ADMIN_API_KEY=YOUR_ADMIN_API_KEY
 ```
 
 ### 4. Generate Internal API Keys (Read/Admin)
@@ -358,14 +358,14 @@ Use the generated values in these variables:
 
 #### Backend root `.env`
 ```dotenv
-arkham_nuclear_read_api_key=YOUR_GENERATED_READ_KEY
-arkham_nuclear_admin_api_key=YOUR_GENERATED_ADMIN_KEY
+NUCLEAR_OUTAGES_READ_API_KEY=YOUR_GENERATED_READ_KEY
+NUCLEAR_OUTAGES_ADMIN_API_KEY=YOUR_GENERATED_ADMIN_KEY
 ```
 
 #### Frontend `apps/web/.env`
 ```dotenv
-VITE_ARKHAM_API_KEY=YOUR_GENERATED_READ_KEY
-VITE_ARKHAM_ADMIN_API_KEY=YOUR_GENERATED_ADMIN_KEY
+VITE_NUCLEAR_OUTAGES_READ_API_KEY=YOUR_GENERATED_READ_KEY
+VITE_NUCLEAR_OUTAGES_ADMIN_API_KEY=YOUR_GENERATED_ADMIN_KEY
 ```
 
 ---
@@ -380,8 +380,8 @@ Before starting, make sure you have the following installed:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/JairoHervert/Arkham-nuclear-outages
-cd Arkham-nuclear-outages
+git clone https://github.com/JairoHervert/EIA-Nuclear-Outages-Pipeline
+cd EIA-Nuclear-Outages-Pipeline
 ```
 
 ### 2. Backend setup
@@ -537,7 +537,7 @@ The first data download can also be triggered from the frontend with the **Refre
 - **Generator-level source** as the main operational granularity, with facility-level summaries derived from it
 - **Derived `generator_id`** to ensure global uniqueness and simplify joins
 - **Server-side filtering, sorting, and pagination** to keep the frontend lightweight
-- **Lightweight API-key auth** as a practical solution for the scope of this challenge
+- **Lightweight API-key auth** as a practical solution for the scope of this project
 - **Functional folder structure** so backend, frontend, data, and documentation remain clearly separated
 
 ---
@@ -571,4 +571,4 @@ Example:
 
 ## Author
 
-Built by **Jairo** as a technical challenge submission for Arkham Technologies.
+Built by **Jairo** as a personal full-stack data engineering project.

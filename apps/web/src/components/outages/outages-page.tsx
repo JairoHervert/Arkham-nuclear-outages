@@ -253,7 +253,7 @@ export function OutagesPage() {
       <div className="space-y-6">
         <div className="space-y-2 text-center md:text-left">
           <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-            Arkham Nuclear Outages Monitor
+            EIA Nuclear Outages Monitor
           </h1>
           <p className="mx-auto max-w-3xl text-sm text-muted-foreground md:mx-0 md:text-base">
             Explore modeled outage data from the pipeline, compare generator and
@@ -320,7 +320,7 @@ export function OutagesPage() {
         </Card>
 
         <footer className="pb-4 text-center text-xs text-muted-foreground">
-          Built by Jairo — Arkham Nuclear Outages technical challenge
+          Built by Jairo — Personal data engineering project
         </footer>
       </div>
     </div>

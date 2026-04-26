@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     )
 
     # App
-    app_name: str = "Arkham Nuclear Outages API"
+    app_name: str = "EIA Nuclear Outages API"
     log_level: str = "INFO"
 
     # EIA
@@ -42,8 +42,8 @@ class Settings(BaseSettings):
 
     # API keys for authorization/authentication of incoming requests to the backend service
     # Only the admin key can trigger a data refresh
-    arkham_nuclear_read_api_key: SecretStr
-    arkham_nuclear_admin_api_key: SecretStr
+    nuclear_outages_read_api_key: SecretStr
+    nuclear_outages_admin_api_key: SecretStr
 
     # Request behavior
     request_timeout_seconds: float = 30.0
